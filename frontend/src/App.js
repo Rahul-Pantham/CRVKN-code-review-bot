@@ -4,9 +4,13 @@ import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import Login from './components/login';
 import Register from './components/register';
+import RejectionReasonsModal from './components/RejectionReasonsModal';
+import AdminLogin from './components/AdminLogin';
+import AdminDashboard from './components/AdminDashboard';
 
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
 
+// Main App Component (existing functionality)
 const CodeReviewApp = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
@@ -18,6 +22,7 @@ const CodeReviewApp = () => {
   const [showThanks, setShowThanks] = useState(false);
   const [pastReviews, setPastReviews] = useState([]);
   const [selectedReview, setSelectedReview] = useState(null);
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
   const fileInputRef = useRef(null);
 
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -226,7 +231,13 @@ const CodeReviewApp = () => {
                 </div>
                 <span className="text-white text-xl font-semibold">CRVKN</span>
               </div>
-              <div>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => window.location.href = '/admin/login'} 
+                  className="bg-[#8B5CF6] text-white px-4 py-2 rounded hover:bg-[#7C3AED] transition-colors"
+                >
+                  Admin
+                </button>
                 {isAuthenticated ? (
                   <button onClick={handleLogout} className="bg-[#10a37f] text-white px-4 py-2 rounded">Logout</button>
                 ) : (
@@ -398,29 +409,16 @@ const CodeReviewApp = () => {
                 </button>
 
                 <button 
-                  onClick={() => setShowFeedback(!showFeedback)}
+                  onClick={() => {
+                    console.log('Reject button clicked, opening modal');
+                    setShowRejectionModal(true);
+                  }}
                   className="flex-shrink-0 p-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
                   title="Reject Review"
                 >
                   <span className="text-white font-medium">✗ Reject</span>
                 </button>
 
-                {showFeedback && (
-                  <div className="bg-[#40414f] rounded-2xl p-6 flex-1">
-                    <h3 className="text-white mb-4 font-medium">Why are you rejecting this review?</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      {feedbackTags.map((tag, index) => (
-                        <button
-                          key={index}
-                          onClick={() => handleFeedbackSubmit('negative', tag)}
-                          className="bg-[#40414f] hover:bg-[#4a4b5b] text-white px-4 py-2 rounded-lg text-sm transition-colors text-left"
-                        >
-                          {tag}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -442,6 +440,18 @@ const CodeReviewApp = () => {
             }
           `}</style>
         </div>
+        
+        {/* Rejection Reasons Modal */}
+        <RejectionReasonsModal
+          isOpen={showRejectionModal}
+          onClose={() => setShowRejectionModal(false)}
+          reviewId={reviewData?.id}
+          onSubmitSuccess={() => {
+            setShowRejectionModal(false);
+            setShowThanks(true);
+            setTimeout(() => setShowThanks(false), 3000);
+          }}
+        />
       </div>
     );
   }
@@ -449,7 +459,13 @@ const CodeReviewApp = () => {
   if (selectedReview) {
     // Render identical layout to an immediate generated review: original code, optimized_code, explanation, security_issues
     return (
-      <div className="flex min-h-screen bg-[#343541]"><div className="fixed top-4 right-4 z-50">
+      <div className="flex min-h-screen bg-[#343541]"><div className="fixed top-4 right-4 z-50 flex gap-3">
+              <button 
+                onClick={() => window.location.href = '/admin/login'} 
+                className="bg-[#8B5CF6] text-white px-4 py-2 rounded hover:bg-[#7C3AED] transition-colors"
+              >
+                Admin
+              </button>
               {isAuthenticated ? (
                 <button onClick={handleLogout} className="bg-[#10a37f] text-white px-4 py-2 rounded">Logout</button>
               ) : (
@@ -529,7 +545,13 @@ const CodeReviewApp = () => {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#343541]"><div className="fixed top-4 right-4 z-50">
+    <div className="flex min-h-screen bg-[#343541]"><div className="fixed top-4 right-4 z-50 flex gap-3">
+              <button 
+                onClick={() => window.location.href = '/admin/login'} 
+                className="bg-[#8B5CF6] text-white px-4 py-2 rounded hover:bg-[#7C3AED] transition-colors"
+              >
+                Admin
+              </button>
               {isAuthenticated ? (
                 <button onClick={handleLogout} className="bg-[#10a37f] text-white px-4 py-2 rounded">Logout</button>
               ) : (
@@ -674,4 +696,23 @@ const CodeReviewApp = () => {
   );
 };
 
-export default CodeReviewApp;
+// Main App with Routing
+const App = () => {
+  return (
+    <BrowserRouter>
+      <Routes>
+        {/* Main Application Route */}
+        <Route path="/" element={<CodeReviewApp />} />
+        
+        {/* Admin Routes */}
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin/dashboard" element={<AdminDashboard />} />
+        
+        {/* Fallback Route */}
+        <Route path="*" element={<CodeReviewApp />} />
+      </Routes>
+    </BrowserRouter>
+  );
+};
+
+export default App;

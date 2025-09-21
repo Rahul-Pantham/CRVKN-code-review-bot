@@ -1,8 +1,117 @@
 import React, { useEffect, useRef, useState } from "react";
 import Sidebar from "./Sidebar";
-import API from "../api";
+import { generateReview, fetchReviews } from "../api";
+import RejectionReasonsModal from "./RejectionReasonsModal";
 
 const uid = () => Math.random().toString(36).slice(2, 9);
+
+// Utility function to parse and format AI response
+const formatAIResponse = (text) => {
+  if (!text) return [];
+  
+  const sections = [];
+  const lines = text.split('\n').filter(line => line.trim() !== '');
+  let currentSection = null;
+  
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    
+    // Check if it's a section header (contains ** or emojis)
+    if (trimmed.includes('**') || /^[🔍📝⭐🛡️🎯🔧📚💡⚡]/u.test(trimmed)) {
+      // Save previous section if exists
+      if (currentSection) {
+        sections.push(currentSection);
+      }
+      
+      // Start new section
+      currentSection = {
+        title: trimmed.replace(/\*\*/g, '').trim(),
+        content: [],
+        type: 'section'
+      };
+    }
+    // Check if it's a bullet point
+    else if (trimmed.startsWith('•') || trimmed.startsWith('-') || /^\d+\./.test(trimmed)) {
+      if (currentSection) {
+        currentSection.content.push({
+          type: 'bullet',
+          text: trimmed.replace(/^[•-]|\d+\./, '').trim()
+        });
+      } else {
+        // Create a default section for orphaned bullets
+        sections.push({
+          title: 'Details',
+          content: [{
+            type: 'bullet', 
+            text: trimmed.replace(/^[•-]|\d+\./, '').trim()
+          }],
+          type: 'section'
+        });
+      }
+    }
+    // Regular content line
+    else if (trimmed !== '') {
+      if (currentSection) {
+        currentSection.content.push({
+          type: 'text',
+          text: trimmed
+        });
+      } else {
+        // Standalone text becomes its own section
+        sections.push({
+          title: '',
+          content: [{ type: 'text', text: trimmed }],
+          type: 'section'
+        });
+      }
+    }
+  });
+  
+  // Add the last section
+  if (currentSection) {
+    sections.push(currentSection);
+  }
+  
+  return sections;
+};
+
+// Component to render formatted sections
+const FormattedAIResponse = ({ text, title, borderColor, titleColor }) => {
+  const sections = formatAIResponse(text);
+  
+  return (
+    <div className={`bg-[#1a1a1a] p-4 rounded-md border-l-4 ${borderColor}`}>
+      <div className={`text-sm font-semibold ${titleColor} mb-3`}>{title}</div>
+      <div className="space-y-4">
+        {sections.map((section, sectionIndex) => (
+          <div key={sectionIndex} className="space-y-2">
+            {section.title && (
+              <div className="font-semibold text-yellow-300 text-base">
+                {section.title}
+              </div>
+            )}
+            <div className="space-y-1">
+              {section.content.map((item, itemIndex) => (
+                <div key={itemIndex} className="text-gray-300">
+                  {item.type === 'bullet' ? (
+                    <div className="flex items-start gap-2">
+                      <span className="text-green-400 mt-1">•</span>
+                      <span className="flex-1">{item.text}</span>
+                    </div>
+                  ) : (
+                    <div className={item.text.includes(':') && item.text.length < 50 ? 'font-medium text-cyan-300' : ''}>
+                      {item.text}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const generateTitleFromCode = (code = "", feedback = "") => {
   const text = (code || "").toString();
@@ -74,21 +183,33 @@ export default function Dashboard() {
   const [reviews, setReviews] = useState([]);
   const [selected, setSelected] = useState(null);
   const [codeInput, setCodeInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
   const displayRef = useRef(null);
 
   useEffect(() => {
-    const sampleComment = "public class HelloWorld { ... }";
-    const sampleFeedback = "Use .equals() for string comparison.";
-    setReviews([
-      {
-        id: "r1",
-        title: generateTitleFromCode(sampleComment, sampleFeedback),
-        comment: sampleComment,
-        ai_feedback: sampleFeedback,
-        created_at: new Date().toISOString(),
-      }
-    ]);
+    loadPastReviews();
   }, []);
+
+  const loadPastReviews = async () => {
+    try {
+      const pastReviews = await fetchReviews();
+      setReviews(pastReviews || []);
+    } catch (err) {
+      console.error("Failed to load past reviews:", err);
+      // If user is not authenticated, set empty reviews
+      setReviews([]);
+    }
+  };
+
+  const handleFeedbackSuccess = (response) => {
+    console.log('Feedback submitted successfully:', response);
+    // Refresh the reviews to get updated status
+    loadPastReviews();
+    // Optionally show a success message
+    setError(null);
+  };
 
   const generateMockFeedback = (code) => {
     if (code.includes("==") && code.includes('"')) {
@@ -99,17 +220,34 @@ export default function Dashboard() {
 
   const handleSubmit = async () => {
     if (!codeInput.trim()) return;
-    const feedback = generateMockFeedback(codeInput);
-    const newReview = {
-      id: uid(),
-      title: generateTitleFromCode(codeInput, feedback),
-      comment: codeInput,
-      ai_feedback: feedback,
-      created_at: new Date().toISOString(),
-    };
-    setReviews([newReview, ...reviews]);
-    setSelected(newReview);
-    setCodeInput("");
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Call the actual backend API
+      const response = await generateReview(codeInput);
+      
+      const newReview = {
+        id: response.id || uid(),
+        title: response.title || generateTitleFromCode(codeInput, response.review),
+        comment: codeInput,
+        ai_feedback: response.review || "Review completed successfully",
+        optimized_code: response.optimized_code,
+        explanation: response.explanation,
+        security_issues: response.security_issues,
+        created_at: new Date().toISOString(),
+      };
+      
+      setReviews([newReview, ...reviews]);
+      setSelected(newReview);
+      setCodeInput("");
+    } catch (err) {
+      console.error("Failed to generate review:", err);
+      setError("Failed to connect to backend: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -118,17 +256,72 @@ export default function Dashboard() {
       <div className="flex-1 p-8 text-white">
         <h1 className="text-xl font-bold mb-4">Code Review Dashboard</h1>
 
+        {/* Error Display */}
+        {error && (
+          <div className="mb-4 p-4 bg-red-900 border border-red-700 rounded-md text-red-200">
+            {error}
+          </div>
+        )}
+
         {/* Selected Review Display */}
         <div ref={displayRef} className="mb-6 bg-[#0f0f10] p-4 rounded-md">
           {!selected ? (
             <div className="text-gray-400">Select a past review or submit new code.</div>
           ) : (
-            <div className="space-y-4">
-              <pre className="whitespace-pre-wrap text-sm">{selected.comment}</pre>
-              <div className="bg-[#0b0b0b] p-3 rounded-md">
-                <div className="text-xs text-gray-400">AI Review:</div>
-                <div>{selected.ai_feedback}</div>
+            <div className="space-y-6">
+              {/* Original Code Section */}
+              <div className="bg-[#1a1a1a] p-4 rounded-md border-l-4 border-blue-500">
+                <div className="text-sm font-semibold text-blue-300 mb-2">📝 Original Code</div>
+                <pre className="whitespace-pre-wrap text-sm text-gray-300 bg-[#0f0f10] p-3 rounded overflow-x-auto">{selected.comment}</pre>
               </div>
+
+              {/* AI Review Section */}
+              <FormattedAIResponse 
+                text={selected.ai_feedback} 
+                title="🤖 AI Code Review"
+                borderColor="border-green-500"
+                titleColor="text-green-300"
+              />
+
+              {/* Optimized Code Section */}
+              {selected.optimized_code && (
+                <div className="bg-[#1a1a1a] p-4 rounded-md border-l-4 border-purple-500">
+                  <div className="text-sm font-semibold text-purple-300 mb-3">⚡ Optimized Code</div>
+                  <pre className="whitespace-pre-wrap text-sm text-gray-300 bg-[#0f0f10] p-3 rounded overflow-x-auto">{selected.optimized_code}</pre>
+                </div>
+              )}
+
+              {/* Explanation Section */}
+              {selected.explanation && (
+                <FormattedAIResponse 
+                  text={selected.explanation} 
+                  title="💡 Explanation"
+                  borderColor="border-cyan-500"
+                  titleColor="text-cyan-300"
+                />
+              )}
+
+              {/* Security Analysis Section */}
+              {selected.security_issues && (
+                <FormattedAIResponse 
+                  text={selected.security_issues} 
+                  title="🛡️ Security Analysis"
+                  borderColor="border-red-500"
+                  titleColor="text-red-300"
+                />
+              )}
+            </div>
+          )}
+
+          {/* Feedback Actions */}
+          {selected && (
+            <div className="mt-6 flex gap-3 justify-end">
+              <button
+                onClick={() => setShowRejectionModal(true)}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md font-medium transition-colors"
+              >
+                📝 Provide Feedback & Report Issues
+              </button>
             </div>
           )}
         </div>
@@ -143,11 +336,24 @@ export default function Dashboard() {
         />
         <button
           onClick={handleSubmit}
-          className="mt-4 px-6 py-2 rounded-md font-semibold bg-green-600 hover:bg-green-700"
+          disabled={loading || !codeInput.trim()}
+          className={`mt-4 px-6 py-2 rounded-md font-semibold ${
+            loading || !codeInput.trim()
+              ? 'bg-gray-600 cursor-not-allowed'
+              : 'bg-green-600 hover:bg-green-700'
+          }`}
         >
-          Submit for Review
+          {loading ? "Processing..." : "Submit for Review"}
         </button>
       </div>
+
+      {/* Rejection Reasons Modal */}
+      <RejectionReasonsModal
+        isOpen={showRejectionModal}
+        onClose={() => setShowRejectionModal(false)}
+        reviewId={selected?.id}
+        onSubmitSuccess={handleFeedbackSuccess}
+      />
     </div>
   );
 }

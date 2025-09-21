@@ -53,4 +53,21 @@ export const generateReview = async (code) => {
   return res.data;
 };
 
+// 🔹 Get predefined rejection reasons
+export const getRejectionReasons = async () => {
+  const res = await API.get("/rejection-reasons");
+  return res.data;
+};
+
+// 🔹 Submit feedback with multiple rejection reasons
+export const submitFeedback = async (reviewId, feedback, rejectionReasons = [], customReason = null) => {
+  const res = await API.post("/submit-feedback", {
+    review_id: reviewId,
+    feedback,
+    rejection_reasons: rejectionReasons,
+    custom_rejection_reason: customReason
+  });
+  return res.data;
+};
+
 export default API;

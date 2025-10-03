@@ -7,6 +7,7 @@ import { Pie, Bar } from 'react-chartjs-2';
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
 const AdminDashboard = () => {
+  const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
   const [overallStats, setOverallStats] = useState(null);
   const [userStats, setUserStats] = useState([]);
   const [allReviews, setAllReviews] = useState([]);
@@ -35,19 +36,19 @@ const AdminDashboard = () => {
       };
 
       // Fetch overall statistics
-      const overallResponse = await fetch('http://127.0.0.1:8000/admin/stats/overall', { headers });
+      const overallResponse = await fetch(`${API_BASE}/admin/stats/overall`, { headers });
       if (!overallResponse.ok) throw new Error('Failed to fetch overall stats');
       const overallData = await overallResponse.json();
       setOverallStats(overallData);
 
       // Fetch per-user statistics
-      const userResponse = await fetch('http://127.0.0.1:8000/admin/stats/per-user', { headers });
+      const userResponse = await fetch(`${API_BASE}/admin/stats/per-user`, { headers });
       if (!userResponse.ok) throw new Error('Failed to fetch user stats');
       const userData = await userResponse.json();
       setUserStats(userData.users);
 
       // Fetch all reviews
-      const reviewsResponse = await fetch(`http://127.0.0.1:8000/admin/reviews/all?page=${currentPage}`, { headers });
+      const reviewsResponse = await fetch(`${API_BASE}/admin/reviews/all?page=${currentPage}`, { headers });
       if (!reviewsResponse.ok) throw new Error('Failed to fetch reviews');
       const reviewsData = await reviewsResponse.json();
       setAllReviews(reviewsData);
@@ -65,7 +66,7 @@ const AdminDashboard = () => {
 
   const fetchReviewDetail = async (reviewId) => {
     try {
-      const response = await fetch(`http://127.0.0.1:8000/admin/reviews/${reviewId}`, {
+      const response = await fetch(`${API_BASE}/admin/reviews/${reviewId}`, {
         headers: { 'Authorization': `Bearer ${adminToken}` }
       });
       if (!response.ok) throw new Error('Failed to fetch review detail');

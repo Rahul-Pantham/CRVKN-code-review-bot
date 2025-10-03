@@ -390,101 +390,79 @@ def generate_review(data: CodeInput, current_user: User = Depends(get_current_us
         else:
             # Enhanced prompts for better structured output
             code_review_prompt = f"""
-            Analyze the following code and provide a comprehensive code review in this EXACT format:
+            Provide a concise, prioritized code review in bullet points (3-5 brief items). Start with the filename if available.
 
-            🔍 Code Review:
-            • [Specific point about code quality/best practices]
-            • [Specific point about potential improvements]
-            • [Specific point about performance considerations]
-            • [Specific point about readability/maintainability]
-            • [Specific point about error handling if applicable]
-
-            📝 Programming Language: [Detected language name]
-
-            ⭐ Overall Rating: [X/10 - Brief reason]
-
-            IMPORTANT: Use bullet points (•) for each review point. Keep each point concise and specific.
-
-            Code to review:
+            Code:
             ```
             {data.code}
             ```
             """
-            
+
             optimized_code_prompt = f"""
-            Provide an optimized and cleaner version of this code. Return ONLY the optimized code with clear comments explaining improvements:
+            Return an optimized, minimal version of the code. Preserve behavior; include short comments for key changes only.
 
             ```
             {data.code}
             ```
-
-            Requirements:
-            - Keep the same functionality
-            - Improve performance where possible
-            - Add meaningful comments
-            - Follow best practices for the detected language
-            - Make it more readable and maintainable
             """
 
             explanation_prompt = f"""
-            Based on this original code:
+            In 1-2 sentences explain what the code does and list 2-3 key improvements made.
+
             ```
             {data.code}
             ```
-
-            Provide a clear explanation in this EXACT format:
-
-            🎯 What this code does:
-            [Brief explanation of functionality in 1-2 sentences]
-
-            🔧 Key improvements made:
-            • [Specific improvement 1]
-            • [Specific improvement 2] 
-            • [Specific improvement 3]
-
-            📚 Concepts used:
-            [Brief mention of programming concepts/patterns used]
-            
-            IMPORTANT: Use bullet points (•) for improvements. Keep explanations concise.
             """
 
             security_analysis_prompt = f"""
-            Analyze this code for security vulnerabilities and provide assessment in this EXACT format:
+            Provide a short security summary: one-line risk level and up to 3 concise issues with 1-line recommendations each.
 
-            🛡️ Security Analysis:
-
-            Risk Level: [LOW/MEDIUM/HIGH]
-
-            Potential Issues:
-            • [Issue 1 or "No major security concerns detected"]
-            • [Issue 2 if applicable]
-            • [Issue 3 if applicable]
-
-            Recommendations:
-            • [Security recommendation 1]
-            • [Security recommendation 2 if applicable]
-
-            IMPORTANT: Use bullet points (•) for all issues and recommendations. Be specific and concise.
-
-            Code to analyze:
             ```
             {data.code}
             ```
             """
 
-            # Generate all responses
-            review_text = extract_text_from_gemini_response(
-                model.generate_content(code_review_prompt)
-            )
-            optimized_code = extract_text_from_gemini_response(
-                model.generate_content(optimized_code_prompt)
-            )
-            explanation_text = extract_text_from_gemini_response(
-                model.generate_content(explanation_prompt)
-            )
-            security_issues = extract_text_from_gemini_response(
-                model.generate_content(security_analysis_prompt)
-            )
+            # Combine all required outputs into a single prompt to reduce latency (single model call)
+            # Truncate long code submissions to limit model input size and latency
+            max_chars = 4000
+            code_for_prompt = data.code
+            if isinstance(code_for_prompt, str) and len(code_for_prompt) > max_chars:
+                code_for_prompt = code_for_prompt[:max_chars] + "\n# ... (truncated)"
+
+            combined_prompt = f"""
+            For the code below, return the following sections separated by the exact markers shown (including markers):
+
+            ###REVIEW###
+            - Provide 3-5 concise bullet points summarizing strengths, issues, and suggestions.
+
+            ###OPTIMIZED_CODE###
+            - Provide the optimized code only. Use code fences with the language if possible.
+
+            ###EXPLANATION###
+            - In 1-2 sentences, explain what the code does and list 2 key improvements.
+
+            ###SECURITY###
+            - Provide a one-line risk level and up to 3 concise security issues and 1-line recommendations each.
+
+            Code to analyze:
+            ```
+            {code_for_prompt}
+            ```
+            """
+
+            combined_resp = extract_text_from_gemini_response(model.generate_content(combined_prompt))
+
+            # Parse combined response by markers
+            def parse_section(text, marker):
+                import re
+                pattern = rf"{marker}(.*?)(?=###[A-Z_]+###|$)"
+                m = re.search(pattern, text, re.S)
+                return m.group(1).strip() if m else ''
+
+            review_text = parse_section(combined_resp, '###REVIEW###')
+            optimized_code = parse_section(combined_resp, '###OPTIMIZED_CODE###')
+            explanation_text = parse_section(combined_resp, '###EXPLANATION###')
+            security_issues = parse_section(combined_resp, '###SECURITY###')
 
         # Detect programming language and extract rating
         detected_language = detect_programming_language(data.code)
@@ -598,7 +576,7 @@ def get_past_review_detail(review_id: int, current_user: User = Depends(get_curr
             "explanation": review.explanation,
             "security_issues": review.security_issues,
             "feedback": review.feedback,
-            "rejection_reason": review.rejection_reason,
+            "rejection_reason": review.rejection_reasons,
             "created_at": review.created_at.isoformat() if review.created_at else None,
         }
     finally:

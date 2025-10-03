@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar';
 import Login from './components/login';
 import Register from './components/register';
 import RejectionReasonsModal from './components/RejectionReasonsModal';
+import ReviewCard from './components/ReviewCard';
 import AdminLogin from './components/AdminLogin';
 import AdminDashboard from './components/AdminDashboard';
 
@@ -24,11 +25,20 @@ const CodeReviewApp = () => {
   const [selectedReview, setSelectedReview] = useState(null);
   const [showRejectionModal, setShowRejectionModal] = useState(false);
   const fileInputRef = useRef(null);
+  const codeTopRef = useRef(null);
 
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [showLogin, setShowLogin] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   const [showAuthPrompt, setShowAuthPrompt] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState([]); // { name, content }
+  const [reviewList, setReviewList] = useState([]); // array of reviews when multiple files submitted
+  const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
+  const [selectedForRejection, setSelectedForRejection] = useState(null);
+
+  const removeSelectedFile = (idx) => {
+    setSelectedFiles(selectedFiles.filter((_, i) => i !== idx));
+  };
 
   // Custom CSS styles for code containers
   const codeContainerStyles = {
@@ -49,6 +59,17 @@ const CodeReviewApp = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // When a review is available, scroll the main area into view so the user sees the input + review
+  useEffect(() => {
+    if (reviewData || selectedReview || (reviewList && reviewList.length > 0)) {
+      try {
+        codeTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, [reviewData, selectedReview, reviewList]);
 
   const navigate = useNavigate();
 
@@ -82,62 +103,141 @@ const CodeReviewApp = () => {
     }
   };
 
-  const handleFileUpload = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setCodeInput(e.target.result);
-        setShowDropdown(false);
-      };
-      reader.readAsText(file);
+  // When user selects files, read them and show filenames in the UI
+  const handleFileUpload = async (event) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    const fileObjs = [];
+    for (const file of files) {
+      try {
+        const content = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target.result);
+          reader.onerror = (e) => reject(e);
+          reader.readAsText(file);
+        });
+        fileObjs.push({ name: file.name, content });
+      } catch (err) {
+        console.error('Error reading file', file.name, err);
+      }
     }
+
+    if (fileObjs.length > 0) {
+      setSelectedFiles(fileObjs);
+      // display filenames in the textbox area for user confirmation
+      setCodeInput(fileObjs.map(f => `File: ${f.name}`).join('\n'));
+    }
+
+    // reset file input so same files can be re-selected later
+    if (event.target) event.target.value = null;
+    setShowDropdown(false);
   };
 
   const handleSubmitCode = async () => {
-    if (!codeInput.trim()) return;
+    // if there are selected files, submit them sequentially; otherwise submit the textbox content
+    if (!codeInput.trim() && selectedFiles.length === 0) return;
 
     if (!token) {
-      // Don't auto-open the login modal from the submit button.
-      // Prompt the user to use the Login button at the top-right instead.
       setShowAuthPrompt(true);
       return;
     }
 
     setIsLoading(true);
+    const results = [];
+
     try {
-      const response = await fetch(API_BASE + '/generate-review', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ code: codeInput }),
-      });
+      if (selectedFiles.length > 0) {
+        // send each file sequentially and collect results
+        for (const f of selectedFiles) {
+          const resp = await fetch(API_BASE + '/generate-review', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ code: f.content, filename: f.name }),
+          });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+          if (!resp.ok) {
+            console.error('Failed to generate review for', f.name, resp.statusText);
+            continue;
+          }
+
+          const data = await resp.json();
+          const reviewObj = {
+            id: data.id || `${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+            title: data.title || f.name,
+            filename: f.name,
+            comment: f.content,
+            ai_feedback: data.review || data.ai_feedback || 'Review completed',
+            optimized_code: data.optimized_code,
+            explanation: data.explanation,
+            security_issues: data.security_issues,
+            created_at: new Date().toISOString(),
+          };
+          results.push(reviewObj);
+        }
+
+        if (results.length > 0) {
+          // update UI with all reviews (display one at a time)
+          setReviewList(results);
+          setCurrentReviewIndex(0);
+          setReviewData(results[0]);
+          setPastReviews((prev) => [...results, ...prev]);
+          setSelectedReview(results[0]);
+        }
+
+        // clear selections
+        setSelectedFiles([]);
+        setCodeInput('');
+      } else {
+        // single textbox submission
+        const response = await fetch(API_BASE + '/generate-review', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ code: codeInput }),
+        });
+
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        if (data.error) { alert('Error: ' + data.error); return; }
+
+        const single = {
+          id: data.id || `${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          title: data.title || 'Review',
+          filename: null,
+          comment: codeInput,
+          ai_feedback: data.review || data.ai_feedback || 'Review completed',
+          optimized_code: data.optimized_code,
+          explanation: data.explanation,
+          security_issues: data.security_issues,
+          created_at: new Date().toISOString(),
+        };
+
+        setReviewList([single]);
+        setReviewData(single);
+        setPastReviews((prev) => [single, ...prev]);
+        setCodeInput('');
       }
 
-      const data = await response.json();
-      if (data.error) {
-        alert('Error: ' + data.error);
-        return;
-      }
-
-      setReviewData(data);
-      setCodeInput(''); // Clear textbox after submission
-      fetchPastReviews(); // Refresh past reviews
-    } catch (error) {
-      console.error('Error:', error);
-      const msg = error?.message || String(error);
-      alert('Failed to connect to backend: ' + msg + '\nEnsure the backend is running and accessible at the configured API host.');
+      fetchPastReviews();
+    } catch (err) {
+      console.error('Error submitting for review:', err);
+      alert('Failed to submit for review: ' + (err?.message || String(err)));
     }
+
     setIsLoading(false);
   };
 
   const handleFeedbackSubmit = async (feedback, rejectionReason = null) => {
     try {
+      const activeReview = (reviewList && reviewList.length > 0) ? reviewList[currentReviewIndex] : reviewData;
+      if (!activeReview) return;
+
       await fetch(API_BASE + '/submit-feedback', {
         method: 'POST',
         headers: {
@@ -145,15 +245,55 @@ const CodeReviewApp = () => {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          review_id: reviewData.review_id,
+          review_id: activeReview.id,
           feedback,
           rejection_reason: rejectionReason
         }),
       });
-      setShowThanks(true);
+
+      // move to next review if multiple, otherwise show thanks
+      if (reviewList && reviewList.length > 0) {
+        if (currentReviewIndex < reviewList.length - 1) {
+          const next = currentReviewIndex + 1;
+          setCurrentReviewIndex(next);
+          setReviewData(reviewList[next]);
+        } else {
+          setShowThanks(true);
+          setReviewList([]);
+          setReviewData(null);
+          setCurrentReviewIndex(0);
+        }
+      } else {
+        setShowThanks(true);
+      }
+
       setShowFeedback(false);
     } catch (error) {
       console.error('Error submitting feedback:', error);
+    }
+  };
+
+  const handleFeedbackSubmitForReview = async (reviewId, feedback, rejectionReason = null) => {
+    try {
+      if (!reviewId) return;
+      await fetch(API_BASE + '/submit-feedback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ review_id: reviewId, feedback, rejection_reason: rejectionReason }),
+      });
+
+      // Update UI: move the review to completed list
+      const review = (reviewList.find(r => r.id === reviewId) || (reviewData && reviewData.id === reviewId ? reviewData : null));
+      if (review) {
+        setPastReviews(prev => [{ ...review, feedback, status: rejectionReason ? 'rejected' : 'reviewed' }, ...prev]);
+        setReviewList(prev => prev.filter(r => r.id !== reviewId));
+        if (reviewData && reviewData.id === reviewId) setReviewData(null);
+      }
+    } catch (err) {
+      console.error('Error submitting feedback for review:', err);
     }
   };
 
@@ -172,15 +312,22 @@ const CodeReviewApp = () => {
       });
       if (resp.ok) {
         const full = await resp.json();
+        // clear any previous rejection state so modal doesn't re-appear
+        setShowRejectionModal(false);
+        setSelectedForRejection(null);
         setSelectedReview(full);
         setReviewData(null);
         setCodeInput('');
       } else {
         console.error('Failed to fetch review detail', resp.status);
+        setShowRejectionModal(false);
+        setSelectedForRejection(null);
         setSelectedReview(review); // fallback to what we have
       }
     } catch (e) {
       console.error('Error fetching review detail', e);
+      setShowRejectionModal(false);
+      setSelectedForRejection(null);
       setSelectedReview(review);
     }
   };
@@ -209,10 +356,18 @@ const CodeReviewApp = () => {
     return 'text';
   };
 
+  const getDisplayedArray = () => {
+    if (reviewList && reviewList.length > 0) {
+      return reviewList;
+    }
+    if (reviewData) return [reviewData];
+    return [];
+  };
+
 
   if (showThanks) {
     return (
-      <div className="flex min-h-screen bg-[#343541]"><div className="fixed top-4 right-4 z-50">
+      <div className="flex min-h-screen bg-[#343541]">{!showLogin && !showRegister && (<><div className="fixed top-4 right-4 z-50">
               {isAuthenticated ? (
                 <button onClick={handleLogout} className="bg-[#10a37f] text-white px-4 py-2 rounded">Logout</button>
               ) : (
@@ -220,7 +375,8 @@ const CodeReviewApp = () => {
               )}
             </div>
         <Sidebar reviews={pastReviews} onSelectReview={handleSelectReview} username={username} onLogout={handleLogout} />
-        <div className="flex-1 p-6">
+        </>)}
+        <div ref={codeTopRef} className="flex-1 p-6" style={{ marginLeft: 64 }}>
           <div className="flex items-center gap-3 mb-12">
             <div className="flex items-center justify-between gap-3 mb-12">
               <div className="flex items-center gap-3">
@@ -248,50 +404,59 @@ const CodeReviewApp = () => {
           </div>
 
           <div className="max-w-4xl mx-auto">
-            <div className="flex justify-end mb-6">
-              <div className="bg-white rounded-full px-6 py-3 max-w-md">
-                <span className="text-[#343541]">{codeInput.substring(0, 50)}...</span>
-              </div>
-            </div>
-
             <div className="space-y-6 text-white">
-              <h2 className="text-xl font-medium">Your line</h2>
-
-              <div className="bg-[#40414f] rounded-xl p-6 overflow-hidden">
-                <div className="text-sm text-gray-300 mb-2">{detectLanguage(codeInput)}</div>
-                <pre 
-                  className="text-white font-mono text-sm leading-relaxed"
-                  style={codeContainerStyles}
-                >
-                  {codeInput}
-                </pre>
-              </div>
+              {/* User's input at the top */}
+              {selectedFiles && selectedFiles.length > 0 ? (
+                <div className="flex items-start gap-4">
+                  <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center flex-shrink-0">
+                    <div className="w-4 h-4 bg-[#343541] rounded flex items-center justify-center">
+                      <div className="w-2 h-2 border border-white rounded-sm"></div>
+                    </div>
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    {selectedFiles.map((f, idx) => (
+                      <div key={f.name + idx} className="flex items-center gap-3 bg-[#40414f] rounded-xl p-4">
+                        <img src="https://cdn.builder.io/api/v1/image/assets%2Fa6020cfe29b945cfb33ac3b4d4f91053%2F7c023e819d5f4a75886f912732747854?format=webp&width=800" alt="file" className="w-6 h-6 object-cover rounded-sm" />
+                        <div className="flex flex-col">
+                          <div className="text-sm font-medium text-white">{f.name}</div>
+                          <div className="text-xs text-gray-300">{detectLanguage(f.content)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-4">
+                  <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center flex-shrink-0">
+                    <div className="w-4 h-4 bg-[#343541] rounded flex items-center justify-center">
+                      <div className="w-2 h-2 border border-white rounded-sm"></div>
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="bg-[#40414f] rounded-xl p-6 overflow-hidden">
+                      <div className="text-sm text-gray-300 mb-2">{detectLanguage(codeInput)}</div>
+                      <pre 
+                        className="text-white font-mono text-sm leading-relaxed"
+                        style={codeContainerStyles}
+                      >
+                        {codeInput}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-4">
-                <p>{reviewData?.review}</p>
-
-                {reviewData?.optimized_code && (
-                  <div className="bg-[#40414f] rounded-xl p-6 overflow-hidden">
-                    <div className="text-sm text-gray-300 mb-2">{detectLanguage(reviewData.optimized_code)}</div>
-                    <pre 
-                      className="text-white font-mono text-sm leading-relaxed"
-                      style={codeContainerStyles}
-                    >
-                      {reviewData.optimized_code}
-                    </pre>
+                { getDisplayedArray().map((rd, idx) => (
+                  <div key={rd.id || idx} className="space-y-4">
+                    <ReviewCard
+                      review={rd}
+                      codeContainerStyles={codeContainerStyles}
+                      onAccept={(id) => handleFeedbackSubmitForReview(id, 'positive')}
+                      onReject={(r) => { setSelectedForRejection(r); setShowRejectionModal(true); }}
+                    />
                   </div>
-                )}
-
-                {reviewData?.explanation && (
-                  <p>{reviewData.explanation}</p>
-                )}
-
-                {reviewData?.security_issues && (
-                  <div className="bg-[#40414f] rounded-xl p-6">
-                    <div className="text-sm text-gray-300 mb-2">Security Analysis</div>
-                    <p className="text-white">{reviewData.security_issues}</p>
-                  </div>
-                )}
+                ))}
               </div>
 
               <div className="pt-8">
@@ -306,7 +471,7 @@ const CodeReviewApp = () => {
             </div>
           </div>
 
-          <style jsx>{`
+          <style>{`
             pre::-webkit-scrollbar {
               height: 6px;
             }
@@ -329,7 +494,7 @@ const CodeReviewApp = () => {
 
   if (reviewData && !showThanks) {
     return (
-      <div className="flex min-h-screen bg-[#343541]"><div className="fixed top-4 right-4 z-50">
+      <div className="flex min-h-screen bg-[#343541]">{!showLogin && !showRegister && (<><div className="fixed top-4 right-4 z-50">
               {isAuthenticated ? (
                 <button onClick={handleLogout} className="bg-[#10a37f] text-white px-4 py-2 rounded">Logout</button>
               ) : (
@@ -337,7 +502,8 @@ const CodeReviewApp = () => {
               )}
             </div>
         <Sidebar reviews={pastReviews} onSelectReview={handleSelectReview} username={username} onLogout={handleLogout} />
-        <div className="flex-1 p-6">
+        </>)}
+        <div ref={codeTopRef} className="flex-1 p-6" style={{ marginLeft: 64 }}>
           <div className="flex items-center gap-3 mb-12">
             <div className="flex items-center justify-between gap-3 mb-12">
               <div className="flex items-center gap-3">
@@ -354,8 +520,47 @@ const CodeReviewApp = () => {
 
           <div className="max-w-4xl mx-auto">
             <div className="flex justify-end mb-6">
-              <div className="bg-white rounded-full px-6 py-3 max-w-md">
-                <span className="text-[#343541]">{codeInput.substring(0, 50)}...</span>
+              <div className="w-full max-w-2xl">
+                <div className="flex items-center bg-[#2b2b2b] rounded-xl px-3 py-2">
+                  <div className="flex gap-2 overflow-x-auto">
+                    {selectedFiles && selectedFiles.length > 0 ? (
+                      selectedFiles.map((f, idx) => (
+                        <div key={f.name + idx} className="flex items-center gap-3 bg-[#3a3a3a] px-3 py-1 rounded-md mr-2">
+                          <img src="https://cdn.builder.io/api/v1/image/assets%2Fa6020cfe29b945cfb33ac3b4d4f91053%2F7c023e819d5f4a75886f912732747854?format=webp&width=800" alt="file" className="w-5 h-5 object-cover rounded-sm" />
+                          <div className="flex flex-col">
+                            <div className="text-sm font-medium text-white truncate" style={{ maxWidth: 220 }}>{f.name}</div>
+                            <div className="text-xs text-gray-300">{detectLanguage(f.content)}</div>
+                          </div>
+                          <button onClick={() => removeSelectedFile(idx)} className="ml-2 text-gray-400 hover:text-white">✕</button>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-gray-400">{codeInput.substring(0, 50)}...</div>
+                    )}
+                  </div>
+
+                  {(reviewData || (reviewList && reviewList.length > 0) || selectedReview) ? (
+                    <div className="flex-1 px-4 text-gray-300">
+                      {selectedFiles && selectedFiles.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {selectedFiles.map((f, idx) => (
+                            <div key={f.name + idx} className="text-sm text-gray-200 truncate" style={{ maxWidth: 600 }}>{f.name}</div>
+                          ))}
+                        </div>
+                      ) : (
+                        <pre className="text-sm font-mono text-gray-200 whitespace-pre-wrap max-h-40 overflow-auto">{codeInput}</pre>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex-1 px-4 text-gray-400">+ Ask anything</div>
+                  )}
+                  <button className="p-2 text-gray-300" title="Voice input">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 1v11"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-14 0"/></svg>
+                  </button>
+                  <button onClick={handleSubmitCode} disabled={isLoading} className="ml-2 bg-white p-2 rounded-full text-[#343541]" title="Send">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14M12 5l7 7-7 7"/></svg>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -373,57 +578,24 @@ const CodeReviewApp = () => {
               </div>
 
               <div className="space-y-4">
-                <p>{reviewData.review}</p>
-
-                {reviewData.optimized_code && (
-                  <div className="bg-[#40414f] rounded-xl p-6 overflow-hidden">
-                    <div className="text-sm text-gray-300 mb-2">{detectLanguage(reviewData.optimized_code)}</div>
-                    <pre 
-                      className="text-white font-mono text-sm leading-relaxed"
-                      style={codeContainerStyles}
-                    >
-                      {reviewData.optimized_code}
-                    </pre>
+                { getDisplayedArray().map((rd, idx) => (
+                  <div key={rd.id || idx} className="space-y-4">
+                    <ReviewCard
+                      review={rd}
+                      codeContainerStyles={codeContainerStyles}
+                      onAccept={(id) => handleFeedbackSubmitForReview(id, 'positive')}
+                      onReject={(r) => { setSelectedForRejection(r); setShowRejectionModal(true); }}
+                    />
                   </div>
-                )}
+                ))}
 
-                {reviewData.explanation && (
-                  <p>{reviewData.explanation}</p>
-                )}
-
-                {reviewData.security_issues && (
-                  <div className="bg-[#40414f] rounded-xl p-6">
-                    <div className="text-sm text-gray-300 mb-2">Security Analysis</div>
-                    <p className="text-white">{reviewData.security_issues}</p>
-                  </div>
-                )}
               </div>
 
-              <div className="flex items-start gap-4 pt-6">
-                <button 
-                  onClick={() => handleFeedbackSubmit('positive')}
-                  className="flex-shrink-0 p-3 bg-[#10a37f] hover:bg-[#0d8c6b] rounded-lg transition-colors"
-                  title="Accept Review"
-                >
-                  <span className="text-white font-medium">✓ Accept</span>
-                </button>
 
-                <button 
-                  onClick={() => {
-                    console.log('Reject button clicked, opening modal');
-                    setShowRejectionModal(true);
-                  }}
-                  className="flex-shrink-0 p-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-                  title="Reject Review"
-                >
-                  <span className="text-white font-medium">✗ Reject</span>
-                </button>
-
-              </div>
             </div>
           </div>
 
-          <style jsx>{`
+          <style>{`
             pre::-webkit-scrollbar {
               height: 6px;
             }
@@ -444,10 +616,20 @@ const CodeReviewApp = () => {
         {/* Rejection Reasons Modal */}
         <RejectionReasonsModal
           isOpen={showRejectionModal}
-          onClose={() => setShowRejectionModal(false)}
-          reviewId={reviewData?.id}
-          onSubmitSuccess={() => {
+          onClose={() => { setShowRejectionModal(false); setSelectedForRejection(null); }}
+          reviewId={selectedForRejection?.id || reviewData?.id}
+          onSubmitSuccess={(response) => {
+            const rid = selectedForRejection?.id || reviewData?.id;
+            if (rid) {
+              const review = (reviewList.find(r => r.id === rid) || (reviewData && reviewData.id === rid ? reviewData : null));
+              if (review) {
+                setPastReviews(prev => [{ ...review, status: response?.status || 'rejected' }, ...prev]);
+                setReviewList(prev => prev.filter(r => r.id !== rid));
+                if (reviewData && reviewData.id === rid) setReviewData(null);
+              }
+            }
             setShowRejectionModal(false);
+            setSelectedForRejection(null);
             setShowThanks(true);
             setTimeout(() => setShowThanks(false), 3000);
           }}
@@ -459,9 +641,9 @@ const CodeReviewApp = () => {
   if (selectedReview) {
     // Render identical layout to an immediate generated review: original code, optimized_code, explanation, security_issues
     return (
-      <div className="flex min-h-screen bg-[#343541]"><div className="fixed top-4 right-4 z-50 flex gap-3">
-              <button 
-                onClick={() => window.location.href = '/admin/login'} 
+      <div className="flex min-h-screen bg-[#343541]">{!showLogin && !showRegister && (<><div className="fixed top-4 right-4 z-50 flex gap-3">
+              <button
+                onClick={() => window.location.href = '/admin/login'}
                 className="bg-[#8B5CF6] text-white px-4 py-2 rounded hover:bg-[#7C3AED] transition-colors"
               >
                 Admin
@@ -473,7 +655,8 @@ const CodeReviewApp = () => {
               )}
             </div>
         <Sidebar reviews={pastReviews} onSelectReview={handleSelectReview} username={username} onLogout={handleLogout} />
-        <div className="flex-1 p-6">
+        </>)}
+        <div ref={codeTopRef} className="flex-1 p-6" style={{ marginLeft: 64 }}>
           <div className="flex items-center gap-3 mb-12">
             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
               <div className="w-8 h-8 bg-[#343541] rounded flex items-center justify-center">
@@ -484,50 +667,50 @@ const CodeReviewApp = () => {
           </div>
 
           <div className="max-w-4xl mx-auto text-white">
-            <div className="flex justify-end mb-6">
-              <div className="bg-white rounded-full px-6 py-3 max-w-md">
-                <span className="text-[#343541]">{(selectedReview.code || '').substring(0,50)}...</span>
-              </div>
-            </div>
-
             <div className="space-y-6">
-              <h2 className="text-xl font-medium">Your submission</h2>
-
-              <div className="bg-[#40414f] rounded-xl p-6 overflow-hidden">
-                <div className="text-sm text-gray-300 mb-2">{detectLanguage(selectedReview.code)}</div>
-                <pre className="text-white font-mono text-sm leading-relaxed whitespace-pre-wrap" style={codeContainerStyles}>{selectedReview.code}</pre>
-              </div>
-
-              <div className="space-y-4">
-                <div className="bg-[#40414f] rounded-xl p-6 overflow-hidden">
-                  <div className="text-sm text-gray-300 mb-2">Review</div>
-                  <pre className="text-white font-mono text-sm leading-relaxed whitespace-pre-wrap">{selectedReview.review}</pre>
+              {/* User's input at the top */}
+              <div className="flex items-start gap-4">
+                <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center flex-shrink-0">
+                  <div className="w-4 h-4 bg-[#343541] rounded flex items-center justify-center">
+                    <div className="w-2 h-2 border border-white rounded-sm"></div>
+                  </div>
                 </div>
+                <div className="flex-1">
+                  {/* Show the original code block if present */}
+                  {selectedReview.filename ? (
+                    <div className="flex items-center gap-3 bg-[#40414f] rounded-xl p-4 mb-4">
+                      <img src="https://cdn.builder.io/api/v1/image/assets%2Fa6020cfe29b945cfb33ac3b4d4f91053%2F7c023e819d5f4a75886f912732747854?format=webp&width=800" alt="file" className="w-6 h-6 object-cover rounded-sm" />
+                      <div className="flex flex-col">
+                        <div className="text-sm font-medium text-white">{selectedReview.filename}</div>
+                        <div className="text-xs text-gray-300">{detectLanguage(selectedReview.code)}</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-[#40414f] rounded-xl p-6 overflow-hidden mb-4">
+                      <div className="text-sm text-gray-300 mb-2">{detectLanguage(selectedReview.code)}</div>
+                      <pre
+                        className="text-white font-mono text-sm leading-relaxed"
+                        style={codeContainerStyles}
+                      >
+                        {selectedReview.code}
+                      </pre>
+                    </div>
+                  )}
 
-                {selectedReview.optimized_code && (
-                  <div className="bg-[#40414f] rounded-xl p-6 overflow-hidden">
-                    <div className="text-sm text-gray-300 mb-2">Optimized code</div>
-                    <pre className="text-white font-mono text-sm leading-relaxed whitespace-pre-wrap" style={codeContainerStyles}>{selectedReview.optimized_code}</pre>
-                  </div>
-                )}
-
-                {selectedReview.explanation && (
-                  <div className="bg-[#40414f] rounded-xl p-4">
-                    <div className="text-sm text-gray-300 mb-2">Explanation</div>
-                    <p className="text-white whitespace-pre-wrap">{selectedReview.explanation}</p>
-                  </div>
-                )}
-
-                {selectedReview.security_issues && (
-                  <div className="bg-[#40414f] rounded-xl p-6">
-                    <div className="text-sm text-gray-300 mb-2">Security Analysis</div>
-                    <pre className="text-white font-mono text-sm leading-relaxed whitespace-pre-wrap">{selectedReview.security_issues}</pre>
-                  </div>
-                )}
+                  <ReviewCard
+                    review={{
+                      ...selectedReview,
+                      ai_feedback: selectedReview.review,
+                      comment: selectedReview.code || selectedReview.comment
+                    }}
+                    codeContainerStyles={codeContainerStyles}
+                    showActions={false}
+                  />
+                </div>
               </div>
 
               <div className="pt-8">
-                <div className="text-sm text-gray-300 italic">Reviewed on: {selectedReview.created_at ? new Date(selectedReview.created_at).toLocaleString() : ''}</div>
+                <div className="text-sm text-gray-300 italic">Reviewed on: {selectedReview.created_at ? new Date(selectedReview.created_at).toLocaleDateString() : ''}</div>
                 <button
                   className="mt-6 bg-[#10a37f] text-white px-6 py-2 rounded-lg hover:bg-[#0d8c6b] font-medium"
                   onClick={() => setSelectedReview(null)}
@@ -538,16 +721,16 @@ const CodeReviewApp = () => {
             </div>
           </div>
 
-          <style jsx>{`\n            pre::-webkit-scrollbar {\n              height: 6px;\n            }\n            pre::-webkit-scrollbar-track {\n              background: #40414f;\n              border-radius: 3px;\n            }\n            pre::-webkit-scrollbar-thumb {\n              background: #6b7280;\n              border-radius: 3px;\n            }\n            pre::-webkit-scrollbar-thumb:hover {\n              background: #9ca3af;\n            }\n          `}</style>
+          <style>{`\n            pre::-webkit-scrollbar {\n              height: 6px;\n            }\n            pre::-webkit-scrollbar-track {\n              background: #40414f;\n              border-radius: 3px;\n            }\n            pre::-webkit-scrollbar-thumb {\n              background: #6b7280;\n              border-radius: 3px;\n            }\n            pre::-webkit-scrollbar-thumb:hover {\n              background: #9ca3af;\n            }\n          `}</style>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen bg-[#343541]"><div className="fixed top-4 right-4 z-50 flex gap-3">
-              <button 
-                onClick={() => window.location.href = '/admin/login'} 
+    <div className="flex min-h-screen bg-[#343541]">{!showLogin && !showRegister && (<><div className="fixed top-4 right-4 z-50 flex gap-3">
+              <button
+                onClick={() => window.location.href = '/admin/login'}
                 className="bg-[#8B5CF6] text-white px-4 py-2 rounded hover:bg-[#7C3AED] transition-colors"
               >
                 Admin
@@ -559,7 +742,8 @@ const CodeReviewApp = () => {
               )}
             </div>
       <Sidebar reviews={pastReviews} onSelectReview={handleSelectReview} username={username} onLogout={handleLogout} />
-      <div className="flex-1 p-6">
+      </>)}
+      <div ref={codeTopRef} className="flex-1 p-6" style={{ marginLeft: 64 }}>
         <div className="flex items-center gap-3 mb-20">
           <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
             <div className="w-8 h-8 bg-[#343541] rounded flex items-center justify-center">
@@ -587,30 +771,42 @@ const CodeReviewApp = () => {
           {showRegister && (
             <Register setShowLogin={setShowLogin} setShowRegister={setShowRegister} setIsAuthenticated={setIsAuthenticated} setUsername={setUsername} setToken={setToken} />
           )}
+          {!showLogin && !showRegister && (
           <div className="relative w-full max-w-2xl">
             <div className="bg-white rounded-2xl shadow-lg p-6 w-full">
               <div className="flex items-start gap-4 mb-4">
-                <button 
+                <button
                   onClick={() => setShowDropdown(!showDropdown)}
                   className="flex-shrink-0 mt-1"
                 >
                   <Plus className="w-6 h-6 text-[#343541]" />
                 </button>
 
-                <textarea
-                  placeholder="Paste your code here..."
-                  value={codeInput}
-                  onChange={(e) => setCodeInput(e.target.value)}
-                  className="flex-1 bg-transparent text-[#343541] placeholder-gray-400 outline-none text-base font-mono resize-none min-h-[120px]"
-                  rows={6}
-                  style={{ overflowX: 'auto', whiteSpace: 'pre', maxWidth: '100%' }}
-                />
+                {selectedFiles && selectedFiles.length > 0 ? (
+                  <div className="flex flex-col gap-2 w-full font-mono text-[#343541]">
+                    {selectedFiles.map((f, idx) => (
+                      <div key={f.name + idx} className="flex items-center gap-3 bg-white/5 px-3 py-2 rounded">
+                        <div className="text-base">+</div>
+                        <div className="text-sm truncate">File: {f.name}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <textarea
+                    placeholder="Paste your code here..."
+                    value={codeInput}
+                    onChange={(e) => setCodeInput(e.target.value)}
+                    className="flex-1 bg-transparent text-[#343541] placeholder-gray-400 outline-none text-base font-mono resize-none min-h-[120px]"
+                    rows={6}
+                    style={{ overflowX: 'auto', whiteSpace: 'pre', maxWidth: '100%' }}
+                  />
+                )}
               </div>
 
               <div className="flex justify-center">
                 <button
                   onClick={handleSubmitCode}
-                  disabled={isLoading || !codeInput.trim()}
+                  disabled={isLoading || (!codeInput.trim() && selectedFiles.length === 0)}
                   className="bg-[#10a37f] text-white px-8 py-3 rounded-lg hover:bg-[#0d8c6b] transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 >
                   {isLoading ? (
@@ -654,13 +850,15 @@ const CodeReviewApp = () => {
               ref={fileInputRef}
               type="file"
               accept=".txt,.py,.js,.java,.cpp,.c,.html,.css,.json"
+              multiple
               onChange={handleFileUpload}
               className="hidden"
             />
           </div>
+          )}
         </div>
 
-        <style jsx>{`
+        <style>{`
           pre::-webkit-scrollbar {
             height: 6px;
           }

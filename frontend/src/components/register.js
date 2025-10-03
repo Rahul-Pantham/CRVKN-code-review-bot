@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
+
 const Register = ({ setShowLogin, setShowRegister, setIsAuthenticated, setUsername: setAppUsername, setToken }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -11,7 +13,7 @@ const Register = ({ setShowLogin, setShowRegister, setIsAuthenticated, setUserna
   const handleRegister = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('/register', {
+      const response = await fetch(`${API_BASE}/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -19,7 +21,7 @@ const Register = ({ setShowLogin, setShowRegister, setIsAuthenticated, setUserna
         body: JSON.stringify({ username, password }),
       });
       if (response.ok) {
-        // Registration successful — require explicit login
+        // Registration successful �� require explicit login
         setSuccess('Registration successful. Please log in to continue.');
         setError('');
         // Close register modal and open login modal (if available)

@@ -53,7 +53,7 @@ export default function Sidebar({ reviews = [], onSelectReview, username = "User
               </div>
               {expanded && r.created_at && (
                 <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", marginTop: 6 }}>
-                  {new Date(r.created_at).toLocaleString()}
+                  {new Date(r.created_at).toLocaleDateString()}
                 </div>
               )}
             </li>
@@ -90,6 +90,10 @@ export default function Sidebar({ reviews = [], onSelectReview, username = null,
       onMouseLeave={() => setExpanded(false)}
       className="flex flex-col justify-between text-white transition-all duration-200"
       style={{
+        position: 'fixed',
+        left: 0,
+        top: 0,
+        zIndex: 20,
         width: expanded ? 260 : 64,
         minWidth: expanded ? 260 : 64,
         background: "#343541", // ChatGPT-like dark background
@@ -152,7 +156,7 @@ export default function Sidebar({ reviews = [], onSelectReview, username = null,
                     marginTop: 6,
                   }}
                 >
-                  {new Date(r.created_at).toLocaleString()}
+                  {new Date(r.created_at).toLocaleDateString()}
                 </div>
               )}
             </li>
@@ -196,4 +200,3 @@ export default function Sidebar({ reviews = [], onSelectReview, username = null,
     </aside>
   );
 }
-

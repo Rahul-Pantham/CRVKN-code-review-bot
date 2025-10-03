@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const AdminLogin = () => {
+  const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -13,7 +14,7 @@ const AdminLogin = () => {
     setError('');
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/admin/login', {
+      const response = await fetch(`${API_BASE}/admin/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

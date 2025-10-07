@@ -37,7 +37,19 @@ const CodeReviewApp = () => {
   const [selectedForRejection, setSelectedForRejection] = useState(null);
 
   const removeSelectedFile = (idx) => {
-    setSelectedFiles(selectedFiles.filter((_, i) => i !== idx));
+    const updatedFiles = selectedFiles.filter((_, i) => i !== idx);
+    setSelectedFiles(updatedFiles);
+    // Update code input to reflect remaining files
+    if (updatedFiles.length > 0) {
+      setCodeInput(updatedFiles.map(f => `File: ${f.name}`).join('\n'));
+    } else {
+      setCodeInput('');
+    }
+  };
+
+  const clearAllFiles = () => {
+    setSelectedFiles([]);
+    setCodeInput('');
   };
 
   // Custom CSS styles for code containers
@@ -111,22 +123,37 @@ const CodeReviewApp = () => {
     const fileObjs = [];
     for (const file of files) {
       try {
+        // Check if file is already selected to prevent duplicates
+        const alreadyExists = selectedFiles.some(existingFile => 
+          existingFile.name === file.name && existingFile.size === file.size
+        );
+        
+        if (alreadyExists) {
+          console.log(`File ${file.name} is already selected, skipping...`);
+          continue;
+        }
+
         const content = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = (e) => resolve(e.target.result);
           reader.onerror = (e) => reject(e);
           reader.readAsText(file);
         });
-        fileObjs.push({ name: file.name, content });
+        fileObjs.push({ name: file.name, content, size: file.size });
       } catch (err) {
         console.error('Error reading file', file.name, err);
       }
     }
 
     if (fileObjs.length > 0) {
-      setSelectedFiles(fileObjs);
-      // display filenames in the textbox area for user confirmation
-      setCodeInput(fileObjs.map(f => `File: ${f.name}`).join('\n'));
+      // Append new files to existing ones instead of replacing
+      setSelectedFiles(prevFiles => {
+        const updatedFiles = [...prevFiles, ...fileObjs];
+        // Update the textbox to show all selected files
+        setCodeInput(updatedFiles.map(f => `File: ${f.name}`).join('\n'));
+        console.log(`Added ${fileObjs.length} files. Total files selected: ${updatedFiles.length}`);
+        return updatedFiles;
+      });
     }
 
     // reset file input so same files can be re-selected later
@@ -148,44 +175,106 @@ const CodeReviewApp = () => {
 
     try {
       if (selectedFiles.length > 0) {
+        console.log(`Starting to process ${selectedFiles.length} files:`, selectedFiles.map(f => f.name));
         // send each file sequentially and collect results
-        for (const f of selectedFiles) {
-          const resp = await fetch(API_BASE + '/generate-review', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-            },
-            body: JSON.stringify({ code: f.content, filename: f.name }),
-          });
+        for (let i = 0; i < selectedFiles.length; i++) {
+          const f = selectedFiles[i];
+          console.log(`Processing file ${i + 1}/${selectedFiles.length}: ${f.name}`);
+          console.log(`File content preview (first 100 chars):`, f.content?.substring(0, 100));
+          
+          try {
+            const resp = await fetch(API_BASE + '/generate-review', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({ code: f.content, filename: f.name }),
+            });
 
-          if (!resp.ok) {
-            console.error('Failed to generate review for', f.name, resp.statusText);
-            continue;
+            if (!resp.ok) {
+              const errorText = await resp.text();
+              console.error('Failed to generate review for', f.name, resp.status, resp.statusText, errorText);
+              // Add an error entry to results so user knows this file failed
+              results.push({
+                id: `error-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+                title: `❌ Error processing ${f.name}`,
+                filename: f.name,
+                comment: f.content,
+                ai_feedback: `Failed to generate review for ${f.name}. Status: ${resp.status} ${resp.statusText}\nError: ${errorText}`,
+                optimized_code: '',
+                explanation: '',
+                security_issues: '',
+                created_at: new Date().toISOString(),
+                isError: true,
+                fileIndex: i + 1,
+                totalFiles: selectedFiles.length
+              });
+              continue;
+            }
+
+            const data = await resp.json();
+            const reviewObj = {
+              id: data.id || `${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+              title: `📄 ${f.name} - ${data.title || 'Code Review'}`,
+              filename: f.name,
+              comment: f.content,
+              ai_feedback: data.review || data.ai_feedback || 'Review completed',
+              optimized_code: data.optimized_code,
+              explanation: data.explanation,
+              security_issues: data.security_issues,
+              language: data.language,
+              rating: data.rating,
+              created_at: new Date().toISOString(),
+              fileIndex: i + 1,
+              totalFiles: selectedFiles.length
+            };
+            results.push(reviewObj);
+            console.log(`Successfully processed file: ${f.name}`);
+          } catch (error) {
+            console.error('Error processing file', f.name, error);
+            results.push({
+              id: `error-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+              title: `❌ Error processing ${f.name}`,
+              filename: f.name,
+              comment: f.content,
+              ai_feedback: `Error processing ${f.name}: ${error.message}`,
+              optimized_code: '',
+              explanation: '',
+              security_issues: '',
+              created_at: new Date().toISOString(),
+              isError: true,
+              fileIndex: i + 1,
+              totalFiles: selectedFiles.length
+            });
           }
-
-          const data = await resp.json();
-          const reviewObj = {
-            id: data.id || `${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
-            title: data.title || f.name,
-            filename: f.name,
-            comment: f.content,
-            ai_feedback: data.review || data.ai_feedback || 'Review completed',
-            optimized_code: data.optimized_code,
-            explanation: data.explanation,
-            security_issues: data.security_issues,
-            created_at: new Date().toISOString(),
-          };
-          results.push(reviewObj);
         }
 
+        console.log('Final results after processing all files:', results);
+        
         if (results.length > 0) {
-          // update UI with all reviews (display one at a time)
+          // Store all reviews but show them sequentially
+          console.log('Setting review list with results:', results);
           setReviewList(results);
           setCurrentReviewIndex(0);
-          setReviewData(results[0]);
+          setReviewData(null); // Clear single review data when showing multiple
           setPastReviews((prev) => [...results, ...prev]);
-          setSelectedReview(results[0]);
+          
+          console.log(`Generated ${results.length} reviews for ${selectedFiles.length} files`);
+          console.log('Current review index set to:', 0);
+          console.log('Review list length:', results.length);
+          
+          // Log each result for debugging
+          results.forEach((result, index) => {
+            console.log(`Result ${index + 1}:`, {
+              filename: result.filename,
+              title: result.title,
+              hasReview: !!result.ai_feedback,
+              isError: result.isError
+            });
+          });
+        } else {
+          console.warn('No results generated from file processing');
         }
 
         // clear selections
@@ -219,7 +308,8 @@ const CodeReviewApp = () => {
         };
 
         setReviewList([single]);
-        setReviewData(single);
+        setCurrentReviewIndex(0);
+        setReviewData(null); // Use reviewList for consistency
         setPastReviews((prev) => [single, ...prev]);
         setCodeInput('');
       }
@@ -253,15 +343,28 @@ const CodeReviewApp = () => {
 
       // move to next review if multiple, otherwise show thanks
       if (reviewList && reviewList.length > 0) {
+        // Mark current review as completed
+        const updatedReviewList = [...reviewList];
+        updatedReviewList[currentReviewIndex] = {
+          ...updatedReviewList[currentReviewIndex],
+          feedbackSubmitted: true,
+          userFeedback: feedback,
+          userRejectionReason: rejectionReason
+        };
+        setReviewList(updatedReviewList);
+
         if (currentReviewIndex < reviewList.length - 1) {
+          // Move to next review
           const next = currentReviewIndex + 1;
           setCurrentReviewIndex(next);
-          setReviewData(reviewList[next]);
+          console.log(`Feedback submitted for ${activeReview.filename || 'file'}. Moving to review ${next + 1}/${reviewList.length}`);
         } else {
+          // All reviews completed
           setShowThanks(true);
           setReviewList([]);
           setReviewData(null);
           setCurrentReviewIndex(0);
+          console.log(`All ${reviewList.length} file reviews completed!`);
         }
       } else {
         setShowThanks(true);
@@ -270,6 +373,7 @@ const CodeReviewApp = () => {
       setShowFeedback(false);
     } catch (error) {
       console.error('Error submitting feedback:', error);
+      alert('Failed to submit feedback. Please try again.');
     }
   };
 
@@ -357,11 +461,48 @@ const CodeReviewApp = () => {
   };
 
   const getDisplayedArray = () => {
+    console.log('getDisplayedArray called - reviewList:', reviewList, 'currentReviewIndex:', currentReviewIndex, 'reviewData:', reviewData);
+    
     if (reviewList && reviewList.length > 0) {
-      return reviewList;
+      // TEMPORARY: Show all reviews to debug the issue
+      if (reviewList.length > 1) {
+        console.log('Showing ALL reviews for debugging:', reviewList);
+        return reviewList; // Show all reviews at once for debugging
+      } else {
+        // For single review, show normally
+        const currentReview = reviewList[currentReviewIndex];
+        console.log('Showing single review:', currentReview);
+        return [currentReview].filter(Boolean);
+      }
     }
-    if (reviewData) return [reviewData];
+    if (reviewData) {
+      console.log('Showing single reviewData:', reviewData);
+      return [reviewData];
+    }
+    console.log('No reviews to display');
     return [];
+  };
+
+  const handleNextReview = () => {
+    console.log('handleNextReview called - current index:', currentReviewIndex, 'list length:', reviewList?.length);
+    if (reviewList && currentReviewIndex < reviewList.length - 1) {
+      const newIndex = currentReviewIndex + 1;
+      setCurrentReviewIndex(newIndex);
+      console.log('Moving to next review, new index:', newIndex);
+    } else {
+      console.log('Cannot move to next review - at end or no reviews');
+    }
+  };
+
+  const handlePreviousReview = () => {
+    console.log('handlePreviousReview called - current index:', currentReviewIndex, 'list length:', reviewList?.length);
+    if (reviewList && currentReviewIndex > 0) {
+      const newIndex = currentReviewIndex - 1;
+      setCurrentReviewIndex(newIndex);
+      console.log('Moving to previous review, new index:', newIndex);
+    } else {
+      console.log('Cannot move to previous review - at beginning or no reviews');
+    }
   };
 
 
@@ -446,6 +587,60 @@ const CodeReviewApp = () => {
                 </div>
               )}
 
+              {/* Debug Info */}
+              {reviewList && reviewList.length > 0 && (
+                <div className="bg-blue-600 text-white rounded-xl p-3 mb-4">
+                  <div className="text-sm">
+                    DEBUG: Found {reviewList.length} review(s) | Current Index: {currentReviewIndex}
+                  </div>
+                  <div className="text-xs mt-1">
+                    Files: {reviewList.map(r => r.filename || 'unknown').join(', ')}
+                  </div>
+                </div>
+              )}
+
+              {/* Multiple Files Navigation */}
+              {reviewList && reviewList.length > 1 && (
+                <div className="bg-[#40414f] rounded-xl p-4 mb-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <span className="text-white font-medium">
+                        Review {currentReviewIndex + 1} of {reviewList.length}
+                      </span>
+                      <div className="text-gray-300 text-sm">
+                        {reviewList[currentReviewIndex]?.filename || `File ${currentReviewIndex + 1}`}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handlePreviousReview}
+                        disabled={currentReviewIndex === 0}
+                        className="bg-[#565869] text-white px-3 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#6b6d82] transition-colors"
+                      >
+                        ← Previous
+                      </button>
+                      <button
+                        onClick={handleNextReview}
+                        disabled={currentReviewIndex >= reviewList.length - 1}
+                        className="bg-[#565869] text-white px-3 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#6b6d82] transition-colors"
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Progress Bar */}
+                  <div className="mt-3">
+                    <div className="w-full bg-[#565869] rounded-full h-2">
+                      <div 
+                        className="bg-[#10a37f] h-2 rounded-full transition-all duration-300" 
+                        style={{ width: `${((currentReviewIndex + 1) / reviewList.length) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-4">
                 { getDisplayedArray().map((rd, idx) => (
                   <div key={rd.id || idx} className="space-y-4">
@@ -492,7 +687,7 @@ const CodeReviewApp = () => {
     );
   }
 
-  if (reviewData && !showThanks) {
+  if ((reviewData || (reviewList && reviewList.length > 0)) && !showThanks) {
     return (
       <div className="flex min-h-screen bg-[#343541]">{!showLogin && !showRegister && (<><div className="fixed top-4 right-4 z-50">
               {isAuthenticated ? (
@@ -522,22 +717,33 @@ const CodeReviewApp = () => {
             <div className="flex justify-end mb-6">
               <div className="w-full max-w-2xl">
                 <div className="flex items-center bg-[#2b2b2b] rounded-xl px-3 py-2">
-                  <div className="flex gap-2 overflow-x-auto">
+                  <div className="flex gap-2 overflow-x-auto flex-1">
                     {selectedFiles && selectedFiles.length > 0 ? (
                       selectedFiles.map((f, idx) => (
-                        <div key={f.name + idx} className="flex items-center gap-3 bg-[#3a3a3a] px-3 py-1 rounded-md mr-2">
+                        <div key={f.name + idx} className="flex items-center gap-3 bg-[#3a3a3a] px-3 py-1 rounded-md mr-2 flex-shrink-0">
                           <img src="https://cdn.builder.io/api/v1/image/assets%2Fa6020cfe29b945cfb33ac3b4d4f91053%2F7c023e819d5f4a75886f912732747854?format=webp&width=800" alt="file" className="w-5 h-5 object-cover rounded-sm" />
                           <div className="flex flex-col">
                             <div className="text-sm font-medium text-white truncate" style={{ maxWidth: 220 }}>{f.name}</div>
                             <div className="text-xs text-gray-300">{detectLanguage(f.content)}</div>
                           </div>
-                          <button onClick={() => removeSelectedFile(idx)} className="ml-2 text-gray-400 hover:text-white">✕</button>
+                          <button onClick={() => removeSelectedFile(idx)} className="ml-2 text-gray-400 hover:text-white" title="Remove file">✕</button>
                         </div>
                       ))
                     ) : (
                       <div className="text-gray-400">{codeInput.substring(0, 50)}...</div>
                     )}
                   </div>
+                  
+                  {/* Clear All Button */}
+                  {selectedFiles && selectedFiles.length > 1 && (
+                    <button
+                      onClick={clearAllFiles}
+                      className="ml-2 bg-red-600 text-white px-2 py-1 rounded text-xs hover:bg-red-700 transition-colors flex-shrink-0"
+                      title="Clear all files"
+                    >
+                      Clear All
+                    </button>
+                  )}
 
                   {(reviewData || (reviewList && reviewList.length > 0) || selectedReview) ? (
                     <div className="flex-1 px-4 text-gray-300">
@@ -576,6 +782,48 @@ const CodeReviewApp = () => {
                   {codeInput}
                 </pre>
               </div>
+
+              {/* Multiple Files Navigation */}
+              {reviewList && reviewList.length > 1 && (
+                <div className="bg-[#40414f] rounded-xl p-4 mb-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <span className="text-white font-medium">
+                        Review {currentReviewIndex + 1} of {reviewList.length}
+                      </span>
+                      <div className="text-gray-300 text-sm">
+                        {reviewList[currentReviewIndex]?.filename || `File ${currentReviewIndex + 1}`}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handlePreviousReview}
+                        disabled={currentReviewIndex === 0}
+                        className="bg-[#565869] text-white px-3 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#6b6d82] transition-colors"
+                      >
+                        ← Previous
+                      </button>
+                      <button
+                        onClick={handleNextReview}
+                        disabled={currentReviewIndex >= reviewList.length - 1}
+                        className="bg-[#565869] text-white px-3 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#6b6d82] transition-colors"
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Progress Bar */}
+                  <div className="mt-3">
+                    <div className="w-full bg-[#565869] rounded-full h-2">
+                      <div 
+                        className="bg-[#10a37f] h-2 rounded-full transition-all duration-300" 
+                        style={{ width: `${((currentReviewIndex + 1) / reviewList.length) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-4">
                 { getDisplayedArray().map((rd, idx) => (

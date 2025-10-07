@@ -151,6 +151,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 # ------------------ Models ------------------
 class CodeInput(BaseModel):
     code: str
+    filename: str | None = None
 
 class FeedbackInput(BaseModel):
     review_id: int
@@ -468,12 +469,20 @@ def generate_review(data: CodeInput, current_user: User = Depends(get_current_us
         detected_language = detect_programming_language(data.code)
         extracted_rating = extract_rating_from_review(review_text)
 
+        # Use filename in title if provided
+        review_title = data.filename if data.filename else derive_title(review_text, data.code)
+        if data.filename and review_text:
+            # Add a brief summary from the review to the filename
+            first_line = review_text.split('\n')[0].strip()
+            if first_line and len(first_line) < 100:
+                review_title = f"{data.filename} - {first_line.lstrip('- ')}"
+
         new_review = Review(
             user_id=current_user.id,
             code=ensure_str(data.code),
             language=detected_language,
             review=review_text.strip(),
-            title=derive_title(review_text, data.code),
+            title=review_title[:200],  # Limit title length
             optimized_code=optimized_code.strip(),
             explanation=explanation_text.strip(),
             security_issues=security_issues.strip(),

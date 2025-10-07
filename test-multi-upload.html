@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Multi-File Upload Test</title>
+</head>
+<body>
+    <h1>Multi-File Upload Test</h1>
+    <input type="file" id="fileInput" multiple accept=".txt,.py,.js,.java,.cpp,.c,.html,.css,.json">
+    <button onclick="testMultipleFiles()">Test Multiple Files</button>
+    <div id="output"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        const token = 'your-token-here'; // Replace with actual token
+
+        async function testMultipleFiles() {
+            const fileInput = document.getElementById('fileInput');
+            const files = Array.from(fileInput.files);
+            
+            if (files.length === 0) {
+                alert('Please select some files first');
+                return;
+            }
+
+            console.log(`Testing with ${files.length} files:`, files.map(f => f.name));
+            const output = document.getElementById('output');
+            output.innerHTML = '<h2>Processing...</h2>';
+
+            const results = [];
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                console.log(`Processing file ${i + 1}/${files.length}: ${file.name}`);
+                
+                try {
+                    const content = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => resolve(e.target.result);
+                        reader.onerror = (e) => reject(e);
+                        reader.readAsText(file);
+                    });
+
+                    console.log(`File content length: ${content.length}`);
+                    
+                    // Simulate API call (since we need authentication)
+                    const mockReview = {
+                        id: Date.now() + i,
+                        title: `${file.name} - Mock Review`,
+                        filename: file.name,
+                        review: `Mock review for ${file.name}`,
+                        optimized_code: content,
+                        explanation: `This is ${file.name}`,
+                        security_issues: 'No issues found',
+                        language: 'Auto-detected',
+                        rating: 8
+                    };
+
+                    results.push(mockReview);
+                    console.log(`Successfully processed: ${file.name}`);
+                    
+                } catch (error) {
+                    console.error(`Error processing ${file.name}:`, error);
+                }
+            }
+
+            // Display results
+            output.innerHTML = `
+                <h2>Results:</h2>
+                <p>Processed ${results.length} files successfully</p>
+                <ul>
+                    ${results.map(r => `<li>${r.filename} - ${r.title}</li>`).join('')}
+                </ul>
+            `;
+
+            console.log('Final results:', results);
+        }
+    </script>
+</body>
+</html>

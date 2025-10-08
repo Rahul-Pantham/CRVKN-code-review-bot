@@ -213,9 +213,23 @@ export default function Dashboard() {
 
   const generateMockFeedback = (code) => {
     if (code.includes("==") && code.includes('"')) {
-      return "Use .equals() instead of == for string comparison.";
+      return `🔍 **General Review:**
+⚠️ Good code! But use .equals() instead of == for comparing text. 😊
+
+🛡️ **Security Check:**
+Safe ✅ No security problems found.
+
+🚨 **Issues Found:**
+🟡 MEDIUM: String comparison issue - use .equals() method`;
     }
-    return "Looks good. Consider adding comments and unit tests.";
+    return `🔍 **General Review:**
+✅ Nice work! Add some comments to make it even better! 🚀
+
+🛡️ **Security Check:**
+Safe ✅ No security problems found.
+
+🚨 **Issues Found:**
+🟢 LOW: Missing comments for better readability`;
   };
 
   const handleSubmit = async () => {

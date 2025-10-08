@@ -305,36 +305,43 @@ def learn_from_feedback(db, user_id: int, feedback_text: str):
     return {"message": "No preference changes detected from feedback", "changes": []}
 
 def generate_custom_prompt(preferences: UserPreferences, is_repository_review: bool = False) -> str:
-    """Generate customized prompt based on user preferences"""
+    """Generate a categorized, kid-friendly prompt based on user preferences"""
     
     sections = []
     
-    # Always include basic review
-    sections.append("###REVIEW###\n- Provide code review findings")
+    # Always include categorized review with severity levels
+    sections.append("""###REVIEW###
+🔍 **General Review:**
+- Give 1-2 simple sentences about code quality
+- Use emojis: ✅ (good), ⚠️ (needs improvement), ❌ (problems)
+- Under 40 words
+
+🛡️ **Security Check:**
+- Just say 'Safe ✅' or 'Not Safe ❌' with simple reason
+- Under 20 words
+
+🚨 **Issues Found:**
+- List problems with severity level:
+  • 🟢 LOW: Small issues (like missing comments)
+  • � MEDIUM: Important fixes needed
+  • 🔴 HIGH: Critical problems that break things
+- If no issues: say 'No major issues found! ✅'""")
     
-    # Add sections based on preferences
-    if preferences.security_analysis:
-        sections.append("###SECURITY###\n- Analyze security vulnerabilities and provide recommendations")
-    
-    if preferences.performance_analysis and preferences.ast_analysis:
-        sections.append("- Include performance optimization suggestions based on AST analysis")
-    elif preferences.performance_analysis:
-        sections.append("- Include performance optimization suggestions")
-    
+    # Add sections based on preferences (simplified)
     if preferences.code_optimization:
-        sections.append("###OPTIMIZED_CODE###\n- Provide optimized version of the code")
+        sections.append("###OPTIMIZED_CODE###\n- Fix the code and add simple comments")
     
-    if preferences.detailed_explanations:
-        sections.append("###EXPLANATION###\n- Provide detailed explanation of the code and improvements")
-    else:
-        sections.append("###EXPLANATION###\n- Provide brief explanation of key improvements")
+    sections.append("""###EXPLANATION###
+📚 **What does this code do?**
+- Explain in 1-2 simple sentences
+- Use words a child would understand
+- Under 30 words""")
     
-    if preferences.best_practices:
-        sections.append("- Include best practices recommendations")
-    
-    # Build the complete prompt
+    # Build the complete categorized prompt
     prompt_parts = [
-        "Analyze the following code according to the user's preferences:",
+        "You are a friendly code teacher who explains things super simply! 😊",
+        "",
+        "Look at this code and give me a SHORT categorized review:",
         "",
         "Return sections separated by exact markers:",
         ""
@@ -344,7 +351,7 @@ def generate_custom_prompt(preferences: UserPreferences, is_repository_review: b
     
     # Add context based on review type
     if is_repository_review:
-        prompt_parts.append("\nNote: This is part of a repository review - consider file relationships and project context.")
+        prompt_parts.append("\nNote: This is from a project - keep it simple and categorized!")
     
     return "\n".join(prompt_parts)
 
@@ -363,6 +370,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
         "http://localhost:8000",
         "http://127.0.0.1:8000",
     ],
@@ -833,9 +842,16 @@ def generate_review(data: CodeInput, current_user: User = Depends(get_current_us
         analyzer = CodeAnalyzer()
         
         if not GOOGLE_API_KEY:
-            review_text = "⚠️ Mock review: Add comments, handle edge cases, and write unit tests."
+            review_text = """🔍 **General Review:**
+✅ Code looks good! Add some comments to make it easier to read. 😊
+
+🛡️ **Security Check:**
+Safe ✅ No security problems found.
+
+🚨 **Issues Found:**
+🟢 LOW: Missing comments for better readability"""
             optimized_code = data.code
-            explanation_text = "Mock explanation (no AI)."
+            explanation_text = "This code does something cool! 🚀"
             security_issues = ""
         else:
             # Get user preferences for customized review
@@ -857,80 +873,52 @@ def generate_review(data: CodeInput, current_user: User = Depends(get_current_us
             if isinstance(code_for_prompt, str) and len(code_for_prompt) > max_chars:
                 code_for_prompt = code_for_prompt[:max_chars] + "\n# ... (truncated)"
 
-            # Build customized prompt based on user preferences
+            # Build categorized, kid-friendly prompt for comprehensive review
             prompt_parts = [
-                "You are an expert code reviewer.",
-            ]
-            
-            if preferences.ast_analysis and ast_summary:
-                prompt_parts.extend([
-                    "I've performed automated AST analysis on the code below.",
-                    "Please provide a comprehensive review considering both the AST analysis findings and your own analysis.",
-                    "",
-                    ast_summary
-                ])
-            
-            prompt_parts.extend([
-                f"## 📝 Code to Review:",
+                "You are a friendly code teacher who explains things super simply! 😊",
+                "",
+                "Look at this code and give me a SHORT review in these categories:",
+                "",
                 f"```{detected_language}",
                 f"{code_for_prompt}",
                 f"```",
                 "",
-                "Please provide your review in the following sections separated by the exact markers:",
+                "###REVIEW###",
+                "🔍 **General Review:**",
+                "- Write 1-2 simple sentences about the code quality",
+                "- Use emojis: ✅ (good), ⚠️ (needs improvement), ❌ (problems)",
+                "- Keep it under 40 words",
                 "",
-                "###REVIEW###"
-            ])
+                "🛡️ **Security Check:**",
+                "- Just say 'Safe ✅' or 'Not Safe ❌' with simple reason",
+                "- Keep it under 20 words",
+                "",
+                "🚨 **Issues Found:**",
+                "- List any problems with severity level:",
+                "  • 🟢 LOW: Small issues (like missing comments)",
+                "  • � MEDIUM: Important fixes needed",
+                "  • 🔴 HIGH: Critical problems that break things",
+                "- If no issues: say 'No major issues found! ✅'",
+                "",
+            ]
             
-            # Customize review focus based on preferences
-            review_points = ["- Provide detailed bullet points covering:"]
-            if preferences.best_practices:
-                review_points.append("  • Code structure and best practices")
-            if preferences.performance_analysis:
-                review_points.append("  • Algorithm efficiency and performance")
-            review_points.extend([
-                "  • Error handling and edge cases",
-                "  • Code readability and maintainability"
-            ])
-            if preferences.ast_analysis:
-                review_points.append("  • Integration with AST findings above")
-            
-            prompt_parts.extend(review_points)
-            prompt_parts.append("")
-            
-            # Add sections based on user preferences
+            # Add simple optimization section if requested
             if preferences.code_optimization:
                 prompt_parts.extend([
                     "###OPTIMIZED_CODE###",
-                    "- Provide optimized code addressing identified issues",
-                    "- Include comments explaining key improvements",
-                    "- Use proper code fencing with language specification",
-                    ""
+                    "- Fix the code and make it better",
+                    "- Add simple comments like '# This makes it faster'",
+                    "",
                 ])
             
-            # Explanation detail level based on preferences
-            if preferences.detailed_explanations:
-                prompt_parts.extend([
-                    "###EXPLANATION###",
-                    "- Provide detailed explanation of what the code does",
-                    "- List 4-5 key improvements made and their benefits",
-                    ""
-                ])
-            else:
-                prompt_parts.extend([
-                    "###EXPLANATION###",
-                    "- Brief explanation of what the code does",
-                    "- List 2-3 key improvements made",
-                    ""
-                ])
-            
-            # Security analysis based on preferences
-            if preferences.security_analysis:
-                prompt_parts.extend([
-                    "###SECURITY###",
-                    "- Provide security risk level (Low/Medium/High)",
-                    "- List specific security issues found",
-                    "- Provide actionable recommendations for each issue"
-                ])
+            # Simple explanation
+            prompt_parts.extend([
+                "###EXPLANATION###",
+                "📚 **What does this code do?**",
+                "- Explain in 1-2 simple sentences",
+                "- Use words a child would understand",
+                "- Keep it under 30 words",
+            ])
             
             combined_prompt = "\n".join(prompt_parts)
 
@@ -1159,9 +1147,16 @@ async def generate_repo_review(data: GitRepoInput, current_user: User = Depends(
                 
                 # Generate review using user preferences
                 if not GOOGLE_API_KEY:
-                    review_text = f"⚠️ Mock review for {file_path}: Add comments, handle edge cases, and write unit tests."
+                    review_text = f"""🔍 **General Review:**
+✅ {file_path} looks good! Add some comments to make it clearer. 😊
+
+🛡️ **Security Check:**
+Safe ✅ No security problems found.
+
+🚨 **Issues Found:**
+🟢 LOW: Missing comments for better readability"""
                     optimized_code = file_content
-                    explanation_text = f"Mock explanation for {file_path} (no AI)."
+                    explanation_text = f"This {file_path} does something useful! 🚀"
                     security_issues = "No security analysis available (no API key)"
                 else:
                     file_language = detect_programming_language(file_content)
@@ -1179,64 +1174,48 @@ async def generate_repo_review(data: GitRepoInput, current_user: User = Depends(
                     if isinstance(code_for_prompt, str) and len(code_for_prompt) > max_chars:
                         code_for_prompt = code_for_prompt[:max_chars] + "\n# ... (truncated)"
 
-                    # Build customized prompt for repository file
+                    # Build categorized, kid-friendly prompt for repository file review
                     prompt_parts = [
-                        f"Review the file '{file_path}' from a Git repository."
-                    ]
-                    
-                    if preferences.ast_analysis and ast_summary:
-                        prompt_parts.extend([
-                            "AST analysis has been performed:",
-                            "",
-                            ast_summary
-                        ])
-                    
-                    prompt_parts.extend([
-                        f"## File: {file_path}",
+                        f"You are a friendly code teacher! 😊 Look at this file from a project and give me a categorized review:",
+                        "",
+                        f"File: {file_path}",
                         f"```{file_language}",
                         f"{code_for_prompt}",
                         f"```",
                         "",
-                        "Provide sections separated by exact markers:",
+                        "###REVIEW###",
+                        f"🔍 **General Review for {file_path}:**",
+                        "- 1-2 simple sentences about code quality",
+                        "- Use ✅ ⚠️ ❌ emojis",
+                        "- Under 40 words",
                         "",
-                        "###REVIEW###"
-                    ])
+                        "🛡️ **Security Check:**",
+                        "- 'Safe ✅' or 'Not Safe ❌' with simple reason",
+                        "- Under 20 words",
+                        "",
+                        "🚨 **Issues Found:**",
+                        "- List problems with severity:",
+                        "  • 🟢 LOW: Small issues",
+                        "  • 🟡 MEDIUM: Important fixes",
+                        "  • � HIGH: Critical problems",
+                        "- If no issues: 'No major issues found! ✅'",
+                        "",
+                    ]
                     
-                    # Customize review points for repository context
-                    if preferences.ast_analysis:
-                        prompt_parts.append(f"- Provide 4-5 bullet points for {file_path} considering AST analysis findings")
-                    else:
-                        prompt_parts.append(f"- Provide 4-5 bullet points for {file_path}")
-                    
-                    prompt_parts.append("- Focus on file-specific issues and repository context")
-                    
-                    if preferences.performance_analysis:
-                        prompt_parts.append("- Include performance considerations for this file")
-                    
-                    prompt_parts.append("")
-                    
-                    # Add optional sections based on preferences
+                    # Add simple sections based on preferences
                     if preferences.code_optimization:
                         prompt_parts.extend([
                             "###OPTIMIZED_CODE###",
-                            "- Provide optimized version addressing identified issues",
-                            "- Include brief comments for key improvements",
-                            ""
+                            "- Fix the code and add simple comments",
+                            "",
                         ])
                     
-                    if preferences.detailed_explanations:
-                        prompt_parts.extend([
-                            "###EXPLANATION###",
-                            f"- Detailed explanation of what {file_path} does",
-                            "- Key improvements made and their benefits",
-                            ""
-                        ])
-                    else:
-                        prompt_parts.extend([
-                            "###EXPLANATION###",
-                            f"- Brief explanation of what {file_path} does and key improvements",
-                            ""
-                        ])
+                    prompt_parts.extend([
+                        "###EXPLANATION###",
+                        f"📚 **What does {file_path} do?**",
+                        "- Explain in 1 simple sentence",
+                        "- Under 25 words",
+                    ])
                     
                     if preferences.security_analysis:
                         prompt_parts.extend([

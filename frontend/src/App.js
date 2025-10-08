@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Link as IconLink, Upload, GitBranch } from 'lucide-react';
+import { Plus, Upload, GitBranch } from 'lucide-react';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import Login from './components/login';
@@ -484,10 +484,17 @@ const CodeReviewApp = () => {
     setIsLoading(false);
   };
 
-  const handleFeedbackSubmit = async (feedback, rejectionReason = null) => {
+  const handleFeedbackSubmitForReview = async (reviewId, feedback, rejectionReason = null, sectionStates = null) => {
     try {
-      const activeReview = (reviewList && reviewList.length > 0) ? reviewList[currentReviewIndex] : reviewData;
-      if (!activeReview) return;
+      if (!reviewId) return;
+      // Prepare detailed section feedback (use backend expected keys)
+      const sectionFeedback = sectionStates ? {
+        ai_review: sectionStates.review,
+        original_code: sectionStates.originalCode,
+        optimized_code: sectionStates.optimizedCode,
+        explanation: sectionStates.explanation,
+        security_analysis: sectionStates.securityAnalysis
+      } : {};
 
       await fetch(API_BASE + '/submit-feedback', {
         method: 'POST',
@@ -496,64 +503,23 @@ const CodeReviewApp = () => {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          review_id: activeReview.id,
+          review_id: reviewId,
           feedback,
-          rejection_reason: rejectionReason
+          rejection_reasons: rejectionReason ? [rejectionReason] : [],
+          custom_rejection_reason: null,
+          section_feedback: sectionFeedback
         }),
-      });
-
-      // move to next review if multiple, otherwise show thanks
-      if (reviewList && reviewList.length > 0) {
-        // Mark current review as completed
-        const updatedReviewList = [...reviewList];
-        updatedReviewList[currentReviewIndex] = {
-          ...updatedReviewList[currentReviewIndex],
-          feedbackSubmitted: true,
-          userFeedback: feedback,
-          userRejectionReason: rejectionReason
-        };
-        setReviewList(updatedReviewList);
-
-        if (currentReviewIndex < reviewList.length - 1) {
-          // Move to next review
-          const next = currentReviewIndex + 1;
-          setCurrentReviewIndex(next);
-          console.log(`Feedback submitted for ${activeReview.filename || 'file'}. Moving to review ${next + 1}/${reviewList.length}`);
-        } else {
-          // All reviews completed
-          setShowThanks(true);
-          setReviewList([]);
-          setReviewData(null);
-          setCurrentReviewIndex(0);
-          console.log(`All ${reviewList.length} file reviews completed!`);
-        }
-      } else {
-        setShowThanks(true);
-      }
-
-      // Feedback submitted successfully
-    } catch (error) {
-      console.error('Error submitting feedback:', error);
-      alert('Failed to submit feedback. Please try again.');
-    }
-  };
-
-  const handleFeedbackSubmitForReview = async (reviewId, feedback, rejectionReason = null) => {
-    try {
-      if (!reviewId) return;
-      await fetch(API_BASE + '/submit-feedback', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ review_id: reviewId, feedback, rejection_reason: rejectionReason }),
       });
 
       // Update UI: move the review to completed list
       const review = (reviewList.find(r => r.id === reviewId) || (reviewData && reviewData.id === reviewId ? reviewData : null));
       if (review) {
-        setPastReviews(prev => [{ ...review, feedback, status: rejectionReason ? 'rejected' : 'reviewed' }, ...prev]);
+        setPastReviews(prev => [{ 
+          ...review, 
+          feedback, 
+          status: rejectionReason ? 'rejected' : 'reviewed',
+          section_feedback: sectionFeedback
+        }, ...prev]);
         setReviewList(prev => prev.filter(r => r.id !== reviewId));
         if (reviewData && reviewData.id === reviewId) setReviewData(null);
       }
@@ -630,21 +596,6 @@ const CodeReviewApp = () => {
       setSelectedReview(review);
     }
   };
-
-  const feedbackTags = [
-    'Syntax errors present',
-    'Security vulnerabilities found',
-    'Incorrect output / results',
-    'Code logic is incorrect',
-    'Poor or missing comments',
-    'Code style inconsistent',
-    'Inefficient algorithm',
-    'Unnecessary complexity',
-    'Duplicate / redundant code',
-    'Variable/method naming not clear',
-    'Does not handle edge cases',
-    'Other (optional text box)'
-  ];
 
   const detectLanguage = (code) => {
     if (!code) return 'text';
@@ -842,8 +793,11 @@ const CodeReviewApp = () => {
                     <ReviewCard
                       review={rd}
                       codeContainerStyles={codeContainerStyles}
-                      onAccept={(id) => handleFeedbackSubmitForReview(id, 'positive')}
-                      onReject={(r) => { setSelectedForRejection(r); setShowRejectionModal(true); }}
+                      onAccept={(id, sectionStates) => handleFeedbackSubmitForReview(id, 'positive', null, sectionStates)}
+                      onReject={(r, sectionStates) => { 
+                        setSelectedForRejection({ review: r, sectionStates }); 
+                        setShowRejectionModal(true); 
+                      }}
                     />
                   </div>
                 ))}
@@ -1026,8 +980,11 @@ const CodeReviewApp = () => {
                     <ReviewCard
                       review={rd}
                       codeContainerStyles={codeContainerStyles}
-                      onAccept={(id) => handleFeedbackSubmitForReview(id, 'positive')}
-                      onReject={(r) => { setSelectedForRejection(r); setShowRejectionModal(true); }}
+                      onAccept={(id, sectionStates) => handleFeedbackSubmitForReview(id, 'positive', null, sectionStates)}
+                      onReject={(r, sectionStates) => { 
+                        setSelectedForRejection({ review: r, sectionStates }); 
+                        setShowRejectionModal(true); 
+                      }}
                     />
                   </div>
                 ))}
@@ -1060,13 +1017,19 @@ const CodeReviewApp = () => {
         <RejectionReasonsModal
           isOpen={showRejectionModal}
           onClose={() => { setShowRejectionModal(false); setSelectedForRejection(null); }}
-          reviewId={selectedForRejection?.id || reviewData?.id}
+          reviewId={selectedForRejection?.review?.id || selectedForRejection?.id || reviewData?.id}
+          sectionStates={selectedForRejection?.sectionStates}
           onSubmitSuccess={(response) => {
-            const rid = selectedForRejection?.id || reviewData?.id;
+            const rid = selectedForRejection?.review?.id || selectedForRejection?.id || reviewData?.id;
+            const sectionFeedback = selectedForRejection?.sectionStates;
             if (rid) {
               const review = (reviewList.find(r => r.id === rid) || (reviewData && reviewData.id === rid ? reviewData : null));
               if (review) {
-                setPastReviews(prev => [{ ...review, status: response?.status || 'rejected' }, ...prev]);
+                setPastReviews(prev => [{ 
+                  ...review, 
+                  status: response?.status || 'rejected',
+                  section_feedback: sectionFeedback
+                }, ...prev]);
                 setReviewList(prev => prev.filter(r => r.id !== rid));
                 if (reviewData && reviewData.id === rid) setReviewData(null);
               }
@@ -1277,16 +1240,6 @@ const CodeReviewApp = () => {
                   <span className="text-[#343541]">Git Repository</span>
                 </button>
 
-                <button
-                  onClick={() => {
-                    setShowDropdown(false);
-                  }}
-                  className="w-full flex items-center gap-3 p-3 text-left hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <IconLink className="w-5 h-5 text-[#343541]" />
-                  <span className="text-[#343541]">Upload URL</span>
-                </button>
-
                 <div className="border-t border-gray-200 my-2"></div>
                 
                 <button
@@ -1298,19 +1251,6 @@ const CodeReviewApp = () => {
                 >
                   <span className="w-5 h-5 text-[#343541] flex items-center justify-center">💡</span>
                   <span className="text-[#343541]">Give Feedback</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    fetchUserPreferences().then(() => {
-                      setShowPreferences(true);
-                      setShowDropdown(false);
-                    });
-                  }}
-                  className="w-full flex items-center gap-3 p-3 text-left hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <span className="w-5 h-5 text-[#343541] flex items-center justify-center">⚙️</span>
-                  <span className="text-[#343541]">My Preferences</span>
                 </button>
 
                 <button

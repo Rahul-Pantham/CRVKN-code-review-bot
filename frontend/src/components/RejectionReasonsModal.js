@@ -5,6 +5,7 @@ const RejectionReasonsModal = ({
   isOpen, 
   onClose, 
   reviewId, 
+  sectionStates,
   onSubmitSuccess 
 }) => {
   console.log('RejectionReasonsModal rendered with:', { isOpen, reviewId, onSubmitSuccess: !!onSubmitSuccess });
@@ -85,7 +86,8 @@ const RejectionReasonsModal = ({
         reviewId,
         feedback,
         selectedReasons,
-        customReason.trim() || null
+        customReason.trim() || null,
+        sectionStates
       );
       
       console.log('Feedback submitted successfully:', response);
@@ -130,6 +132,33 @@ const RejectionReasonsModal = ({
           {error && (
             <div className="mb-4 p-3 bg-red-900 border border-red-700 rounded text-red-200 text-sm">
               {error}
+            </div>
+          )}
+
+          {/* Section-Level Feedback Summary */}
+          {sectionStates && (
+            <div className="mb-6 p-4 bg-[#2a2a2a] border border-gray-600 rounded">
+              <h3 className="text-sm font-medium text-gray-300 mb-3">Your Section-by-Section Feedback:</h3>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {Object.entries(sectionStates).map(([section, state]) => {
+                  if (state === null) return null;
+                  const sectionNames = {
+                    review: 'AI Review',
+                    originalCode: 'Original Code',
+                    optimizedCode: 'Optimized Code',
+                    explanation: 'Explanation',
+                    securityAnalysis: 'Security Analysis'
+                  };
+                  return (
+                    <div key={section} className={`flex items-center gap-2 p-2 rounded ${
+                      state === 'accepted' ? 'bg-green-900/30 text-green-300' : 'bg-red-900/30 text-red-300'
+                    }`}>
+                      <span>{state === 'accepted' ? '✓' : '✗'}</span>
+                      <span>{sectionNames[section]}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 

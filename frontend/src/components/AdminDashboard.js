@@ -12,6 +12,7 @@ const AdminDashboard = () => {
   const [userStats, setUserStats] = useState([]);
   const [allReviews, setAllReviews] = useState([]);
   const [selectedReview, setSelectedReview] = useState(null);
+  const [sectionFeedbackStats, setSectionFeedbackStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -52,6 +53,18 @@ const AdminDashboard = () => {
       if (!reviewsResponse.ok) throw new Error('Failed to fetch reviews');
       const reviewsData = await reviewsResponse.json();
       setAllReviews(reviewsData);
+
+      // Fetch section feedback analytics
+      try {
+        const sectionResponse = await fetch(`${API_BASE}/admin/analytics/section-feedback`, { headers });
+        if (sectionResponse.ok) {
+          const sectionData = await sectionResponse.json();
+          setSectionFeedbackStats(sectionData);
+        }
+      } catch (sectionErr) {
+        console.warn('Section feedback analytics not available:', sectionErr.message);
+        // Don't fail the entire dashboard if section analytics fails
+      }
 
     } catch (err) {
       setError(err.message);
@@ -118,19 +131,6 @@ const AdminDashboard = () => {
         '#DC2626',
         '#4B5563',
       ]
-    }]
-  };
-
-  // Prepare bar chart data for rejection reasons
-  const rejectionReasons = overallStats?.rejection_reasons || {};
-  const barChartData = {
-    labels: Object.keys(rejectionReasons).slice(0, 10), // Top 10 reasons
-    datasets: [{
-      label: 'Count',
-      data: Object.values(rejectionReasons).slice(0, 10),
-      backgroundColor: '#EF4444',
-      borderColor: '#DC2626',
-      borderWidth: 1
     }]
   };
 
@@ -218,9 +218,9 @@ const AdminDashboard = () => {
         </div>
 
         {/* Charts Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+        <div className="flex justify-center mb-8">
           {/* Pie Chart - Review Status */}
-          <div className="bg-[#1a1a1a] rounded-lg p-6">
+          <div className="bg-[#1a1a1a] rounded-lg p-6 w-full max-w-md">
             <h3 className="text-xl font-semibold text-white mb-4">Review Status Distribution</h3>
             <div className="h-64">
               <Pie 
@@ -239,19 +239,63 @@ const AdminDashboard = () => {
               />
             </div>
           </div>
+        </div>
 
-          {/* Bar Chart - Top Rejection Reasons */}
-          <div className="bg-[#1a1a1a] rounded-lg p-6">
-            <h3 className="text-xl font-semibold text-white mb-4">Top Rejection Reasons</h3>
-            <div className="h-64">
+        {/* Section Feedback Analytics */}
+        {sectionFeedbackStats && sectionFeedbackStats.chart_data && (
+          <div className="bg-[#1a1a1a] rounded-lg p-6 mb-8">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-semibold text-white">Section-Level Feedback Analytics</h3>
+              <div className="text-sm text-gray-400">
+                Total Records: {sectionFeedbackStats.summary?.total_feedback_records || 0} | 
+                Recent (30d): {sectionFeedbackStats.summary?.recent_feedback_count || 0}
+              </div>
+            </div>
+            <div className="h-80">
               <Bar 
-                data={barChartData}
+                data={{
+                  labels: sectionFeedbackStats.chart_data.map(item => item.section),
+                  datasets: [
+                    {
+                      label: 'Accepted',
+                      data: sectionFeedbackStats.chart_data.map(item => item.accepted),
+                      backgroundColor: '#10B981',
+                      borderColor: '#059669',
+                      borderWidth: 1
+                    },
+                    {
+                      label: 'Rejected',
+                      data: sectionFeedbackStats.chart_data.map(item => item.rejected),
+                      backgroundColor: '#EF4444',
+                      borderColor: '#DC2626',
+                      borderWidth: 1
+                    }
+                  ]
+                }}
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
                   plugins: {
                     legend: {
-                      display: false
+                      labels: {
+                        color: 'white'
+                      }
+                    },
+                    tooltip: {
+                      callbacks: {
+                        afterLabel: function(context) {
+                          const dataIndex = context.dataIndex;
+                          const sectionData = sectionFeedbackStats.chart_data[dataIndex];
+                          const total = sectionData.accepted + sectionData.rejected;
+                          if (total > 0) {
+                            const percentage = context.dataset.label === 'Accepted' 
+                              ? ((sectionData.accepted / total) * 100).toFixed(1)
+                              : ((sectionData.rejected / total) * 100).toFixed(1);
+                            return `${percentage}% of total feedback`;
+                          }
+                          return '';
+                        }
+                      }
                     }
                   },
                   scales: {
@@ -276,8 +320,25 @@ const AdminDashboard = () => {
                 }}
               />
             </div>
+            <div className="mt-4 grid grid-cols-5 gap-4 text-center">
+              {sectionFeedbackStats.chart_data.map((section, index) => {
+                const total = section.accepted + section.rejected;
+                const acceptanceRate = total > 0 ? ((section.accepted / total) * 100).toFixed(1) : '0';
+                return (
+                  <div key={index} className="bg-[#2a2a2a] rounded-lg p-3">
+                    <div className="text-white font-medium text-sm">{section.section}</div>
+                    <div className="text-gray-300 text-xs mt-1">
+                      {section.accepted}A / {section.rejected}R
+                    </div>
+                    <div className={`text-xs mt-1 ${parseFloat(acceptanceRate) >= 70 ? 'text-green-400' : parseFloat(acceptanceRate) >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>
+                      {acceptanceRate}% accepted
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Per-User Statistics Table */}
         <div className="bg-[#1a1a1a] rounded-lg p-6 mb-8">

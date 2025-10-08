@@ -128,6 +128,38 @@ class Review(Base):
         Index('ix_reviews_repo_type', 'is_repository_review', 'created_at'),
     )
 
+class SectionFeedback(Base):
+    __tablename__ = "section_feedback"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Section-specific feedback
+    review_section = Column(String(20), nullable=True)  # 'accepted', 'rejected', or null
+    original_code_section = Column(String(20), nullable=True)
+    optimized_code_section = Column(String(20), nullable=True)
+    explanation_section = Column(String(20), nullable=True)
+    security_analysis_section = Column(String(20), nullable=True)
+    
+    # Overall feedback context
+    overall_feedback = Column(String(20), nullable=True)  # 'positive', 'negative'
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    review = relationship("Review")
+    user = relationship("User")
+    
+    # Add indexes for analytics queries
+    __table_args__ = (
+        Index('ix_section_feedback_review_user', 'review_id', 'user_id'),
+        Index('ix_section_feedback_created', 'created_at'),
+        Index('ix_section_feedback_sections', 'review_section', 'optimized_code_section', 'explanation_section', 'security_analysis_section'),
+    )
+
 class UserPreferences(Base):
     __tablename__ = "user_preferences"
     
@@ -394,6 +426,7 @@ class FeedbackInput(BaseModel):
     feedback: str
     rejection_reasons: list[str] = []  # List of selected predefined reasons
     custom_rejection_reason: str | None = None  # Custom reason if "Other" selected
+    section_feedback: dict = {}  # Section-level feedback: {"ai_review": "accepted", "explanation": "rejected", etc.}
 
 class UserCreate(BaseModel):
     username: str
@@ -989,6 +1022,7 @@ def submit_feedback(data: FeedbackInput, current_user: User = Depends(get_curren
     print(f"  feedback: {data.feedback}")
     print(f"  rejection_reasons: {data.rejection_reasons}")
     print(f"  custom_rejection_reason: {data.custom_rejection_reason}")
+    print(f"  section_feedback: {data.section_feedback}")
     
     db = SessionLocal()
     try:
@@ -1009,6 +1043,40 @@ def submit_feedback(data: FeedbackInput, current_user: User = Depends(get_curren
             print(f"DEBUG: Storing custom_rejection_reason: {data.custom_rejection_reason}")
             review.custom_rejection_reason = ensure_str(data.custom_rejection_reason)
         
+        # Store section-level feedback
+        if data.section_feedback:
+            print(f"DEBUG: Storing section feedback: {data.section_feedback}")
+            
+            # Map frontend section names to database columns
+            section_mapping = {
+                'ai_review': 'review_section',
+                'original_code': 'original_code_section', 
+                'optimized_code': 'optimized_code_section',
+                'explanation': 'explanation_section',
+                'security_analysis': 'security_analysis_section'
+            }
+            
+            # Check if section feedback already exists for this review
+            section_feedback_record = db.query(SectionFeedback).filter(
+                SectionFeedback.review_id == data.review_id,
+                SectionFeedback.user_id == current_user.id
+            ).first()
+            
+            if not section_feedback_record:
+                section_feedback_record = SectionFeedback(
+                    review_id=data.review_id,
+                    user_id=current_user.id,
+                    overall_feedback=data.feedback
+                )
+                db.add(section_feedback_record)
+            
+            # Update section feedback columns
+            for frontend_name, db_column in section_mapping.items():
+                if frontend_name in data.section_feedback:
+                    setattr(section_feedback_record, db_column, data.section_feedback[frontend_name])
+            
+            section_feedback_record.overall_feedback = data.feedback
+        
         # Update status if rejection reasons provided
         if data.rejection_reasons or data.custom_rejection_reason:
             review.status = "rejected"
@@ -1024,7 +1092,8 @@ def submit_feedback(data: FeedbackInput, current_user: User = Depends(get_curren
             "message": "Feedback submitted successfully",
             "status": review.status,
             "rejection_reasons": data.rejection_reasons,
-            "custom_reason": data.custom_rejection_reason
+            "custom_reason": data.custom_rejection_reason,
+            "section_feedback": data.section_feedback
         }
     finally:
         db.close()
@@ -1465,6 +1534,82 @@ def get_review_detail(review_id: int, current_admin = Depends(get_current_admin)
             "rejection_reasons": json.loads(review.rejection_reasons) if review.rejection_reasons else [],
             "custom_rejection_reason": review.custom_rejection_reason,
             "created_at": review.created_at.isoformat()
+        }
+    finally:
+        db.close()
+
+@app.get("/admin/analytics/section-feedback")
+def get_section_feedback_analytics(current_admin = Depends(get_current_admin)):
+    """Get section-level feedback analytics for admin dashboard"""
+    db = SessionLocal()
+    try:
+        from sqlalchemy import func, case
+        
+        # Query section feedback statistics
+        section_stats = db.query(
+            # Count accepted and rejected for each section
+            func.sum(case((SectionFeedback.review_section == 'accepted', 1), else_=0)).label('review_accepted'),
+            func.sum(case((SectionFeedback.review_section == 'rejected', 1), else_=0)).label('review_rejected'),
+            
+            func.sum(case((SectionFeedback.original_code_section == 'accepted', 1), else_=0)).label('original_code_accepted'),
+            func.sum(case((SectionFeedback.original_code_section == 'rejected', 1), else_=0)).label('original_code_rejected'),
+            
+            func.sum(case((SectionFeedback.optimized_code_section == 'accepted', 1), else_=0)).label('optimized_code_accepted'),
+            func.sum(case((SectionFeedback.optimized_code_section == 'rejected', 1), else_=0)).label('optimized_code_rejected'),
+            
+            func.sum(case((SectionFeedback.explanation_section == 'accepted', 1), else_=0)).label('explanation_accepted'),
+            func.sum(case((SectionFeedback.explanation_section == 'rejected', 1), else_=0)).label('explanation_rejected'),
+            
+            func.sum(case((SectionFeedback.security_analysis_section == 'accepted', 1), else_=0)).label('security_analysis_accepted'),
+            func.sum(case((SectionFeedback.security_analysis_section == 'rejected', 1), else_=0)).label('security_analysis_rejected'),
+            
+            func.count(SectionFeedback.id).label('total_feedback_records')
+        ).first()
+        
+        # Format data for bar chart
+        chart_data = [
+            {
+                "section": "AI Review",
+                "accepted": section_stats.review_accepted or 0,
+                "rejected": section_stats.review_rejected or 0
+            },
+            {
+                "section": "Original Code", 
+                "accepted": section_stats.original_code_accepted or 0,
+                "rejected": section_stats.original_code_rejected or 0
+            },
+            {
+                "section": "Optimized Code",
+                "accepted": section_stats.optimized_code_accepted or 0,
+                "rejected": section_stats.optimized_code_rejected or 0
+            },
+            {
+                "section": "Explanation",
+                "accepted": section_stats.explanation_accepted or 0,
+                "rejected": section_stats.explanation_rejected or 0
+            },
+            {
+                "section": "Security Analysis",
+                "accepted": section_stats.security_analysis_accepted or 0,
+                "rejected": section_stats.security_analysis_rejected or 0
+            }
+        ]
+        
+        # Get recent feedback trends (last 30 days)
+        from datetime import datetime, timedelta
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        
+        recent_feedback = db.query(SectionFeedback).filter(
+            SectionFeedback.created_at >= thirty_days_ago
+        ).count()
+        
+        return {
+            "chart_data": chart_data,
+            "summary": {
+                "total_feedback_records": section_stats.total_feedback_records or 0,
+                "recent_feedback_count": recent_feedback,
+                "generated_at": datetime.utcnow().isoformat()
+            }
         }
     finally:
         db.close()

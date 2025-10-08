@@ -59,13 +59,23 @@ export const getRejectionReasons = async () => {
   return res.data;
 };
 
-// 🔹 Submit feedback with multiple rejection reasons
-export const submitFeedback = async (reviewId, feedback, rejectionReasons = [], customReason = null) => {
+// 🔹 Submit feedback with multiple rejection reasons and section-level feedback
+export const submitFeedback = async (reviewId, feedback, rejectionReasons = [], customReason = null, sectionStates = null) => {
+  // Prepare detailed section feedback
+  const sectionFeedback = sectionStates ? {
+    review_section: sectionStates.review,
+    original_code_section: sectionStates.originalCode,
+    optimized_code_section: sectionStates.optimizedCode,
+    explanation_section: sectionStates.explanation,
+    security_analysis_section: sectionStates.securityAnalysis
+  } : {};
+
   const res = await API.post("/submit-feedback", {
     review_id: reviewId,
     feedback,
     rejection_reasons: rejectionReasons,
-    custom_rejection_reason: customReason
+    custom_rejection_reason: customReason,
+    section_feedback: sectionFeedback
   });
   return res.data;
 };

@@ -18,6 +18,7 @@ import subprocess
 import tempfile
 import shutil
 from typing import List, Dict
+from ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
 
 # ------------------ Constants ------------------
 PREDEFINED_REJECTION_REASONS = [
@@ -370,16 +371,16 @@ def detect_programming_language(code: str) -> str:
         
     code_lower = code.lower().strip()
     
-    # Language detection patterns
+    # Language detection patterns - order matters!
     if any(keyword in code_lower for keyword in ['import react', 'usestate', 'useeffect', 'jsx', 'tsx']):
         return 'React/JavaScript'
+    elif any(keyword in code_lower for keyword in ['public class', 'static void main', 'system.out', 'import java']):
+        return 'Java'
     elif any(keyword in code_lower for keyword in ['function ', 'const ', 'let ', 'var ', 'console.log', '=>']):
         return 'JavaScript'
-    elif any(keyword in code_lower for keyword in ['def ', 'import ', 'print(', 'if __name__']):
+    elif any(keyword in code_lower for keyword in ['def ', 'print(', 'if __name__']) and 'import ' in code_lower:
         return 'Python'
-    elif any(keyword in code_lower for keyword in ['public class', 'static void main', 'system.out']):
-        return 'Java'
-    elif any(keyword in code_lower for keyword in ['#include', 'int main', 'printf', 'cout']):
+    elif any(keyword in code_lower for keyword in ['#include', 'int main', 'printf']):
         return 'C/C++'
     elif any(keyword in code_lower for keyword in ['using namespace', 'std::', 'cin', 'cout']):
         return 'C++'
@@ -578,72 +579,64 @@ def get_current_admin(token: str = Depends(oauth2_scheme)):
 def generate_review(data: CodeInput, current_user: User = Depends(get_current_user)):
     db = SessionLocal()
     try:
+        # Initialize AST analyzer
+        analyzer = CodeAnalyzer()
+        
         if not GOOGLE_API_KEY:
             review_text = "⚠️ Mock review: Add comments, handle edge cases, and write unit tests."
             optimized_code = data.code
             explanation_text = "Mock explanation (no AI)."
             security_issues = ""
         else:
-            # Enhanced prompts for better structured output
-            code_review_prompt = f"""
-            Provide a concise, prioritized code review in bullet points (3-5 brief items). Start with the filename if available.
-
-            Code:
-            ```
-            {data.code}
-            ```
-            """
-
-            optimized_code_prompt = f"""
-            Return an optimized, minimal version of the code. Preserve behavior; include short comments for key changes only.
-
-            ```
-            {data.code}
-            ```
-            """
-
-            explanation_prompt = f"""
-            In 1-2 sentences explain what the code does and list 2-3 key improvements made.
-
-            ```
-            {data.code}
-            ```
-            """
-
-            security_analysis_prompt = f"""
-            Provide a short security summary: one-line risk level and up to 3 concise issues with 1-line recommendations each.
-
-            ```
-            {data.code}
-            ```
-            """
-
-            # Combine all required outputs into a single prompt to reduce latency (single model call)
+            # Perform AST analysis first
+            print(f"Performing AST analysis for code review...")
+            detected_language = detect_programming_language(data.code)
+            ast_analysis = analyzer.analyze_code(data.code, detected_language)
+            
+            # Format AST analysis for Gemini
+            ast_summary = format_ast_analysis_for_gemini(ast_analysis)
+            
             # Truncate long code submissions to limit model input size and latency
-            max_chars = 4000
+            max_chars = 3500  # Reduced to make room for AST analysis
             code_for_prompt = data.code
             if isinstance(code_for_prompt, str) and len(code_for_prompt) > max_chars:
                 code_for_prompt = code_for_prompt[:max_chars] + "\n# ... (truncated)"
 
+            # Enhanced prompt with AST analysis
             combined_prompt = f"""
-            For the code below, return the following sections separated by the exact markers shown (including markers):
+            You are an expert code reviewer. I've performed automated AST analysis on the code below. Please provide a comprehensive review considering both the AST analysis findings and your own analysis.
 
-            ###REVIEW###
-            - Provide 3-5 concise bullet points summarizing strengths, issues, and suggestions.
+            {ast_summary}
 
-            ###OPTIMIZED_CODE###
-            - Provide the optimized code only. Use code fences with the language if possible.
-
-            ###EXPLANATION###
-            - In 1-2 sentences, explain what the code does and list 2 key improvements.
-
-            ###SECURITY###
-            - Provide a one-line risk level and up to 3 concise security issues and 1-line recommendations each.
-
-            Code to analyze:
-            ```
+            ## 📝 Code to Review:
+            ```{detected_language}
             {code_for_prompt}
             ```
+
+            Please provide your review in the following sections separated by the exact markers:
+
+            ###REVIEW###
+            - Provide 5-7 detailed bullet points covering:
+              1. Code structure and organization
+              2. Algorithm efficiency and logic
+              3. Error handling and edge cases
+              4. Code readability and maintainability
+              5. Integration with AST findings above
+              6. Any additional issues not caught by AST analysis
+
+            ###OPTIMIZED_CODE###
+            - Provide the optimized code addressing the issues found in both AST analysis and your review
+            - Include comments explaining key improvements
+            - Use proper code fencing with language specification
+
+            ###EXPLANATION###
+            - In 2-3 sentences, explain what the code does
+            - List 3-4 key improvements made based on AST analysis and manual review
+
+            ###SECURITY###
+            - Provide security risk level (Low/Medium/High)
+            - List specific security issues found (combining AST findings with manual analysis)
+            - Provide actionable recommendations for each issue
             """
 
             combined_resp = extract_text_from_gemini_response(model.generate_content(combined_prompt))
@@ -659,6 +652,12 @@ def generate_review(data: CodeInput, current_user: User = Depends(get_current_us
             optimized_code = parse_section(combined_resp, '###OPTIMIZED_CODE###')
             explanation_text = parse_section(combined_resp, '###EXPLANATION###')
             security_issues = parse_section(combined_resp, '###SECURITY###')
+            
+            # Enhance review with AST findings if Gemini response is incomplete
+            if not review_text and ast_analysis.issues:
+                review_text = f"AST Analysis findings:\n" + '\n'.join([f"- {issue}" for issue in ast_analysis.issues])
+            
+            print(f"AST analysis complete. Found {len(ast_analysis.issues)} issues.")
 
         # Detect programming language and extract rating
         detected_language = detect_programming_language(data.code)
@@ -854,41 +853,55 @@ async def generate_repo_review(data: GitRepoInput, current_user: User = Depends(
             # Extract repository name from URL for title
             repo_name = data.repo_url.split('/')[-1].replace('.git', '')
             
+            # Initialize AST analyzer for repository review
+            analyzer = CodeAnalyzer()
+            
             for i, (file_path, file_content) in enumerate(code_files.items(), 1):
                 print(f"Processing file {i}/{len(code_files)}: {file_path}")
                 
-                # Generate review using the existing generate_review logic
+                # Generate review using AST analysis + Gemini
                 if not GOOGLE_API_KEY:
                     review_text = f"⚠️ Mock review for {file_path}: Add comments, handle edge cases, and write unit tests."
                     optimized_code = file_content
                     explanation_text = f"Mock explanation for {file_path} (no AI)."
                     security_issues = "No security analysis available (no API key)"
                 else:
-                    # Use the same combined prompt approach as the existing generate_review
-                    max_chars = 4000
+                    # Perform AST analysis for this file
+                    file_language = detect_programming_language(file_content)
+                    ast_analysis = analyzer.analyze_code(file_content, file_language)
+                    ast_summary = format_ast_analysis_for_gemini(ast_analysis)
+                    
+                    # Truncate for repository files (smaller limit)
+                    max_chars = 3000
                     code_for_prompt = file_content
                     if isinstance(code_for_prompt, str) and len(code_for_prompt) > max_chars:
                         code_for_prompt = code_for_prompt[:max_chars] + "\n# ... (truncated)"
 
                     combined_prompt = f"""
-                    For the file {file_path}, return the following sections separated by the exact markers shown:
+                    Review the file '{file_path}' from a Git repository. AST analysis has been performed:
 
-                    ###REVIEW###
-                    - Provide 3-5 concise bullet points summarizing strengths, issues, and suggestions for {file_path}.
+                    {ast_summary}
 
-                    ###OPTIMIZED_CODE###
-                    - Provide the optimized code only. Use code fences with the language if possible.
-
-                    ###EXPLANATION###
-                    - In 1-2 sentences, explain what this file does and list 2 key improvements.
-
-                    ###SECURITY###
-                    - Provide a one-line risk level and up to 3 concise security issues with 1-line recommendations each.
-
-                    Code to analyze:
-                    ```
+                    ## File: {file_path}
+                    ```{file_language}
                     {code_for_prompt}
                     ```
+
+                    Provide sections separated by exact markers:
+
+                    ###REVIEW###
+                    - Provide 4-5 bullet points for {file_path} considering AST analysis findings
+                    - Focus on file-specific issues and how it fits in the repository context
+
+                    ###OPTIMIZED_CODE###
+                    - Provide optimized version addressing AST and manual findings
+                    - Include brief comments for key improvements
+
+                    ###EXPLANATION###
+                    - Explain what {file_path} does and key improvements made
+
+                    ###SECURITY###
+                    - Security risk level and specific issues for {file_path}
                     """
 
                     try:
@@ -905,12 +918,18 @@ async def generate_repo_review(data: GitRepoInput, current_user: User = Depends(
                         optimized_code = parse_section(combined_resp, '###OPTIMIZED_CODE###')
                         explanation_text = parse_section(combined_resp, '###EXPLANATION###')
                         security_issues = parse_section(combined_resp, '###SECURITY###')
+                        
+                        # Fallback to AST findings if Gemini response is empty
+                        if not review_text and ast_analysis.issues:
+                            review_text = "AST Analysis findings:\n" + '\n'.join([f"- {issue}" for issue in ast_analysis.issues])
+                        
                     except Exception as e:
                         print(f"Error processing {file_path}: {e}")
-                        review_text = f"Error processing {file_path}: {str(e)}"
+                        # Use AST analysis as fallback
+                        review_text = f"AST Analysis for {file_path}:\n" + '\n'.join([f"- {issue}" for issue in ast_analysis.issues]) if ast_analysis.issues else f"Basic analysis completed for {file_path}"
                         optimized_code = file_content
-                        explanation_text = f"Failed to analyze {file_path}"
-                        security_issues = "Analysis failed"
+                        explanation_text = f"Failed to analyze {file_path} with AI, AST analysis completed"
+                        security_issues = '\n'.join(ast_analysis.security_concerns) if ast_analysis.security_concerns else "Analysis failed"
 
                 # Detect programming language and extract rating
                 detected_language = detect_programming_language(file_content)

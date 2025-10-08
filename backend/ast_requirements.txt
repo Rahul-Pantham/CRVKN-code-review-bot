@@ -1,0 +1,22 @@
+# AST Analysis Dependencies
+# Add these to your requirements.txt
+
+# Python AST analysis
+ast  # Built-in, no need to install
+
+# JavaScript/TypeScript AST analysis
+# esprima  # Uncomment if needed for JS analysis
+
+# Multi-language AST analysis
+tree-sitter  # Universal parser
+tree-sitter-python
+tree-sitter-javascript
+tree-sitter-java
+tree-sitter-cpp
+
+# Code complexity analysis
+radon  # For Python complexity metrics
+lizard  # Multi-language complexity analysis
+
+# Additional code analysis
+bandit  # Python security analysis

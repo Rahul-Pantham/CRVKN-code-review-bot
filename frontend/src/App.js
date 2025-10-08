@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Link as IconLink, Upload } from 'lucide-react';
+import { Plus, Link as IconLink, Upload, GitBranch } from 'lucide-react';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import Login from './components/login';
@@ -35,6 +35,14 @@ const CodeReviewApp = () => {
   const [reviewList, setReviewList] = useState([]); // array of reviews when multiple files submitted
   const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
   const [selectedForRejection, setSelectedForRejection] = useState(null);
+  
+  // Git repository states
+  const [showGitModal, setShowGitModal] = useState(false);
+  const [gitRepoUrl, setGitRepoUrl] = useState('');
+  const [gitBranch, setGitBranch] = useState('main');
+  const [includePatterns] = useState(['*.py', '*.js', '*.jsx', '*.ts', '*.tsx', '*.java', '*.cpp', '*.c', '*.h', '*.cs', '*.php', '*.rb', '*.go', '*.rs', '*.swift']);
+  const [excludePatterns] = useState(['node_modules/**', '*.min.js', '*.min.css', 'dist/**', 'build/**', '__pycache__/**', '*.pyc', '.git/**']);
+  const [maxFiles] = useState(50);
 
   const removeSelectedFile = (idx) => {
     const updatedFiles = selectedFiles.filter((_, i) => i !== idx);
@@ -318,6 +326,90 @@ const CodeReviewApp = () => {
     } catch (err) {
       console.error('Error submitting for review:', err);
       alert('Failed to submit for review: ' + (err?.message || String(err)));
+    }
+
+    setIsLoading(false);
+  };
+
+  const handleGitRepoSubmit = async () => {
+    if (!gitRepoUrl.trim()) {
+      alert('Please enter a valid Git repository URL');
+      return;
+    }
+
+    if (!token) {
+      setShowAuthPrompt(true);
+      return;
+    }
+
+    setIsLoading(true);
+    setShowGitModal(false);
+
+    try {
+      console.log(`Starting Git repository review for: ${gitRepoUrl} (branch: ${gitBranch})`);
+      
+      const response = await fetch(API_BASE + '/generate-repo-review', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          repo_url: gitRepoUrl,
+          branch: gitBranch,
+          include_patterns: includePatterns,
+          exclude_patterns: excludePatterns,
+          max_files: maxFiles
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to process repository: ${response.status} ${response.statusText}\n${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log('Git repository review completed:', data);
+
+      if (data.reviews && data.reviews.length > 0) {
+        // Format the reviews for display
+        const formattedReviews = data.reviews.map((review, index) => ({
+          id: review.id,
+          title: `🔗 ${review.file_path}`,
+          filename: review.file_path,
+          comment: 'Git Repository File',
+          ai_feedback: review.review,
+          optimized_code: review.optimized_code,
+          explanation: review.explanation,
+          security_issues: review.security_issues,
+          language: review.language,
+          rating: review.rating,
+          created_at: new Date().toISOString(),
+          fileIndex: index + 1,
+          totalFiles: data.reviews.length,
+          repositoryUrl: data.repository_url,
+          branch: data.branch
+        }));
+
+        // Set reviews for display
+        setReviewList(formattedReviews);
+        setCurrentReviewIndex(0);
+        setReviewData(null);
+        setPastReviews((prev) => [...formattedReviews, ...prev]);
+
+        console.log(`Successfully reviewed ${formattedReviews.length} files from Git repository`);
+        
+        // Clear Git form
+        setGitRepoUrl('');
+        setGitBranch('main');
+      } else {
+        alert('No code files found in the repository or all files failed to process.');
+      }
+
+      fetchPastReviews();
+    } catch (err) {
+      console.error('Error processing Git repository:', err);
+      alert('Failed to process Git repository: ' + (err?.message || String(err)));
     }
 
     setIsLoading(false);
@@ -1073,6 +1165,17 @@ const CodeReviewApp = () => {
               <div className="absolute top-full left-0 mt-2 bg-white rounded-2xl shadow-lg p-4 w-64 z-10">
                 <button
                   onClick={() => {
+                    setShowGitModal(true);
+                    setShowDropdown(false);
+                  }}
+                  className="w-full flex items-center gap-3 p-3 text-left hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <GitBranch className="w-5 h-5 text-[#343541]" />
+                  <span className="text-[#343541]">Git Repository</span>
+                </button>
+
+                <button
+                  onClick={() => {
                     setShowDropdown(false);
                   }}
                   className="w-full flex items-center gap-3 p-3 text-left hover:bg-gray-100 rounded-lg transition-colors"
@@ -1103,6 +1206,65 @@ const CodeReviewApp = () => {
               className="hidden"
             />
           </div>
+          )}
+
+          {/* Git Repository Modal */}
+          {showGitModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-2xl shadow-lg p-6 w-full max-w-md mx-4">
+                <h3 className="text-xl font-semibold text-[#343541] mb-4">Review Git Repository</h3>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-[#343541] mb-2">
+                      Repository URL *
+                    </label>
+                    <input
+                      type="url"
+                      value={gitRepoUrl}
+                      onChange={(e) => setGitRepoUrl(e.target.value)}
+                      placeholder="https://github.com/username/repository"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#10a37f] text-[#343541]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-[#343541] mb-2">
+                      Branch
+                    </label>
+                    <input
+                      type="text"
+                      value={gitBranch}
+                      onChange={(e) => setGitBranch(e.target.value)}
+                      placeholder="main"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#10a37f] text-[#343541]"
+                    />
+                  </div>
+
+                  <div className="text-sm text-gray-600">
+                    <p><strong>File Types:</strong> Python, JavaScript, TypeScript, Java, C/C++, C#, PHP, Ruby, Go, Rust, Swift</p>
+                    <p><strong>Max Files:</strong> {maxFiles}</p>
+                    <p><strong>Excludes:</strong> node_modules, dist, build, __pycache__, .git</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 mt-6">
+                  <button
+                    onClick={() => setShowGitModal(false)}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-[#343541] rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleGitRepoSubmit}
+                    disabled={!gitRepoUrl.trim() || isLoading}
+                    className="flex-1 bg-[#10a37f] text-white px-4 py-2 rounded-lg hover:bg-[#0d8c6b] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoading ? 'Processing...' : 'Review Repository'}
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 

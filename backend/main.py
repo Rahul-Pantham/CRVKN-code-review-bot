@@ -14,6 +14,10 @@ from datetime import datetime, timedelta
 import uuid
 import traceback
 import json
+import subprocess
+import tempfile
+import shutil
+from typing import List, Dict
 
 # ------------------ Constants ------------------
 PREDEFINED_REJECTION_REASONS = [
@@ -166,12 +170,40 @@ class UserCreate(BaseModel):
 class UserOut(BaseModel):
     username: str
 
+class GitRepoInput(BaseModel):
+    repo_url: str
+    branch: str = "main"
+    include_patterns: List[str] = [
+        "*.py", "*.js", "*.ts", "*.jsx", "*.tsx", 
+        "*.java", "*.cpp", "*.c", "*.h", "*.cs", 
+        "*.php", "*.rb", "*.go", "*.rs", "*.kt"
+    ]
+    exclude_patterns: List[str] = [
+        "node_modules/**", "*.min.js", "dist/**", "build/**",
+        "__pycache__/**", "*.pyc", ".git/**", "vendor/**"
+    ]
+    max_files: int = 50
+
 # ------------------ Helpers ------------------
 def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        # Truncate password if too long for bcrypt
+        if len(plain_password.encode('utf-8')) > 72:
+            plain_password = plain_password[:72]
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception as e:
+        print(f"Password verification error: {e}")
+        return False
 
 def get_password_hash(password):
-    return pwd_context.hash(password)
+    try:
+        # Truncate password if too long for bcrypt
+        if len(password.encode('utf-8')) > 72:
+            password = password[:72]
+        return pwd_context.hash(password)
+    except Exception as e:
+        print(f"Password hashing error: {e}")
+        return None
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -205,6 +237,89 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         return user
     finally:
         db.close()
+
+# ------------------ Git Helper Functions ------------------
+
+def clone_git_repository(repo_url: str, branch: str = "main") -> str:
+    """Clone a Git repository to a temporary directory."""
+    temp_dir = tempfile.mkdtemp(prefix="git_review_")
+    try:
+        # Clone the repository
+        if branch:
+            result = subprocess.run(
+                ["git", "clone", "--branch", branch, "--depth", "1", repo_url, temp_dir],
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+        else:
+            result = subprocess.run(
+                ["git", "clone", "--depth", "1", repo_url, temp_dir],
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+        
+        if result.returncode != 0:
+            raise Exception(f"Git clone failed: {result.stderr}")
+        
+        print(f"Successfully cloned repository to: {temp_dir}")
+        return temp_dir
+    
+    except subprocess.TimeoutExpired:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        raise Exception("Git clone timed out after 5 minutes")
+    except Exception as e:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        raise Exception(f"Failed to clone repository: {str(e)}")
+
+def get_code_files(repo_path: str, include_patterns: List[str], exclude_patterns: List[str], max_files: int) -> Dict[str, str]:
+    """Extract code files from the cloned repository."""
+    import fnmatch
+    
+    code_files = {}
+    file_count = 0
+    
+    for root, dirs, files in os.walk(repo_path):
+        # Skip excluded directories
+        dirs[:] = [d for d in dirs if not any(fnmatch.fnmatch(d, pattern) for pattern in exclude_patterns)]
+        
+        for file in files:
+            if file_count >= max_files:
+                break
+                
+            file_path = os.path.join(root, file)
+            relative_path = os.path.relpath(file_path, repo_path)
+            
+            # Check if file matches include patterns
+            if not any(fnmatch.fnmatch(file, pattern) for pattern in include_patterns):
+                continue
+            
+            # Check if file matches exclude patterns
+            if any(fnmatch.fnmatch(file, pattern) or fnmatch.fnmatch(relative_path, pattern) for pattern in exclude_patterns):
+                continue
+            
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    
+                # Skip empty files or files that are too large (> 100KB)
+                if not content.strip() or len(content) > 100000:
+                    continue
+                    
+                code_files[relative_path] = content
+                file_count += 1
+                
+            except Exception as e:
+                print(f"Warning: Could not read file {relative_path}: {e}")
+                continue
+        
+        if file_count >= max_files:
+            break
+    
+    return code_files
 
 def ensure_str(s) -> str:
     return s if isinstance(s, str) else str(s or "")
@@ -296,6 +411,78 @@ def extract_rating_from_review(review_text: str) -> int:
         return None  # No rating found
     except Exception:
         return None
+
+def clone_git_repository(repo_url: str, branch: str = "main") -> str:
+    """Clone a Git repository to a temporary directory."""
+    try:
+        # Ensure URL ends with .git for proper cloning
+        if not repo_url.endswith('.git') and 'github.com' in repo_url:
+            repo_url = repo_url + '.git'
+            
+        temp_dir = tempfile.mkdtemp(prefix="code_review_repo_")
+        print(f"Cloning repository {repo_url} (branch: {branch}) to {temp_dir}")
+        
+        # Clone the repository
+        cmd = ["git", "clone", "--depth", "1", "--branch", branch, repo_url, temp_dir]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode != 0:
+            # Try without specifying branch if the branch doesn't exist
+            cmd = ["git", "clone", "--depth", "1", repo_url, temp_dir]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode != 0:
+                raise Exception(f"Failed to clone repository: {result.stderr}")
+        
+        return temp_dir
+    except subprocess.TimeoutExpired:
+        raise Exception("Repository cloning timed out (5 minutes)")
+    except Exception as e:
+        raise Exception(f"Error cloning repository: {str(e)}")
+
+def get_code_files(repo_path: str, include_patterns: List[str], exclude_patterns: List[str], max_files: int) -> Dict[str, str]:
+    """Get code files from the cloned repository."""
+    import fnmatch
+    import os
+    
+    code_files = {}
+    file_count = 0
+    
+    for root, dirs, files in os.walk(repo_path):
+        # Skip excluded directories
+        dirs[:] = [d for d in dirs if not any(fnmatch.fnmatch(d, pattern.split('/')[0]) for pattern in exclude_patterns)]
+        
+        for file in files:
+            if file_count >= max_files:
+                break
+                
+            file_path = os.path.join(root, file)
+            relative_path = os.path.relpath(file_path, repo_path)
+            
+            # Check if file matches include patterns
+            if not any(fnmatch.fnmatch(file, pattern) for pattern in include_patterns):
+                continue
+                
+            # Check if file matches exclude patterns
+            if any(fnmatch.fnmatch(relative_path, pattern) for pattern in exclude_patterns):
+                continue
+            
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    # Limit file size to prevent overwhelming the AI
+                    if len(content) > 50000:  # 50KB limit
+                        content = content[:50000] + "\n# ... (file truncated)"
+                    code_files[relative_path] = content
+                    file_count += 1
+            except (UnicodeDecodeError, IOError):
+                # Skip binary files or files that can't be read
+                continue
+                
+        if file_count >= max_files:
+            break
+    
+    return code_files
 
 # ------------------ Routes ------------------
 @app.get("/")
@@ -590,6 +777,154 @@ def get_past_review_detail(review_id: int, current_user: User = Depends(get_curr
         }
     finally:
         db.close()
+
+@app.post("/generate-repo-review")
+async def generate_repo_review(data: GitRepoInput, current_user: User = Depends(get_current_user)):
+    """Generate reviews for all files in a Git repository."""
+    temp_dir = None
+    try:
+        print(f"Starting repository review for: {data.repo_url}")
+        
+        # Clone the repository
+        temp_dir = clone_git_repository(data.repo_url, data.branch)
+        
+        # Get all code files
+        code_files = get_code_files(temp_dir, data.include_patterns, data.exclude_patterns, data.max_files)
+        
+        if not code_files:
+            raise HTTPException(status_code=400, detail="No code files found in repository")
+        
+        print(f"Found {len(code_files)} code files to review")
+        
+        # Process each file
+        reviews = []
+        db = SessionLocal()
+        
+        try:
+            for i, (file_path, file_content) in enumerate(code_files.items(), 1):
+                print(f"Processing file {i}/{len(code_files)}: {file_path}")
+                
+                # Create a CodeInput object for each file
+                code_input = CodeInput(code=file_content, filename=file_path)
+                
+                # Generate review using the existing generate_review logic
+                if not GOOGLE_API_KEY:
+                    review_text = f"⚠️ Mock review for {file_path}: Add comments, handle edge cases, and write unit tests."
+                    optimized_code = file_content
+                    explanation_text = f"Mock explanation for {file_path} (no AI)."
+                    security_issues = "No security analysis available (no API key)"
+                else:
+                    # Use the same combined prompt approach as the existing generate_review
+                    max_chars = 4000
+                    code_for_prompt = file_content
+                    if isinstance(code_for_prompt, str) and len(code_for_prompt) > max_chars:
+                        code_for_prompt = code_for_prompt[:max_chars] + "\n# ... (truncated)"
+
+                    combined_prompt = f"""
+                    For the file {file_path}, return the following sections separated by the exact markers shown:
+
+                    ###REVIEW###
+                    - Provide 3-5 concise bullet points summarizing strengths, issues, and suggestions for {file_path}.
+
+                    ###OPTIMIZED_CODE###
+                    - Provide the optimized code only. Use code fences with the language if possible.
+
+                    ###EXPLANATION###
+                    - In 1-2 sentences, explain what this file does and list 2 key improvements.
+
+                    ###SECURITY###
+                    - Provide a one-line risk level and up to 3 concise security issues with 1-line recommendations each.
+
+                    Code to analyze:
+                    ```
+                    {code_for_prompt}
+                    ```
+                    """
+
+                    try:
+                        combined_resp = extract_text_from_gemini_response(model.generate_content(combined_prompt))
+
+                        # Parse combined response by markers
+                        def parse_section(text, marker):
+                            import re
+                            pattern = rf"{marker}(.*?)(?=###[A-Z_]+###|$)"
+                            m = re.search(pattern, text, re.S)
+                            return m.group(1).strip() if m else ''
+
+                        review_text = parse_section(combined_resp, '###REVIEW###')
+                        optimized_code = parse_section(combined_resp, '###OPTIMIZED_CODE###')
+                        explanation_text = parse_section(combined_resp, '###EXPLANATION###')
+                        security_issues = parse_section(combined_resp, '###SECURITY###')
+                    except Exception as e:
+                        print(f"Error processing {file_path}: {e}")
+                        review_text = f"Error processing {file_path}: {str(e)}"
+                        optimized_code = file_content
+                        explanation_text = f"Failed to analyze {file_path}"
+                        security_issues = "Analysis failed"
+
+                # Detect programming language and extract rating
+                detected_language = detect_programming_language(file_content)
+                extracted_rating = extract_rating_from_review(review_text)
+
+                # Create title with file path
+                review_title = f"📁 {file_path}"
+                if review_text:
+                    first_line = review_text.split('\n')[0].strip()
+                    if first_line and len(first_line) < 100:
+                        review_title = f"📁 {file_path} - {first_line.lstrip('- ')}"
+
+                # Save review to database
+                new_review = Review(
+                    user_id=current_user.id,
+                    code=ensure_str(file_content),
+                    language=detected_language,
+                    review=review_text.strip(),
+                    title=review_title[:200],
+                    optimized_code=optimized_code.strip(),
+                    explanation=explanation_text.strip(),
+                    security_issues=security_issues.strip(),
+                    rating=extracted_rating,
+                    status="completed"
+                )
+                db.add(new_review)
+                db.commit()
+                db.refresh(new_review)
+                
+                reviews.append({
+                    "id": new_review.id,
+                    "file_path": file_path,
+                    "title": new_review.title,
+                    "review": new_review.review,
+                    "optimized_code": new_review.optimized_code,
+                    "explanation": new_review.explanation,
+                    "security_issues": new_review.security_issues,
+                    "language": new_review.language,
+                    "rating": new_review.rating,
+                })
+        
+        finally:
+            db.close()
+        
+        return {
+            "message": f"Successfully reviewed {len(reviews)} files from repository",
+            "repository_url": data.repo_url,
+            "branch": data.branch,
+            "total_files": len(reviews),
+            "reviews": reviews
+        }
+        
+    except Exception as e:
+        print(f"Error processing repository: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing repository: {str(e)}")
+    
+    finally:
+        # Clean up temporary directory
+        if temp_dir and os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir)
+                print(f"Cleaned up temporary directory: {temp_dir}")
+            except Exception as e:
+                print(f"Warning: Failed to clean up temporary directory {temp_dir}: {e}")
 
 # ------------------ Admin Endpoints ------------------
 

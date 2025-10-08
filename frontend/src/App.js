@@ -372,30 +372,41 @@ const CodeReviewApp = () => {
       console.log('Git repository review completed:', data);
 
       if (data.reviews && data.reviews.length > 0) {
-        // Format the reviews for display
-        const formattedReviews = data.reviews.map((review, index) => ({
-          id: review.id,
-          title: `🔗 ${review.file_path}`,
-          filename: review.file_path,
-          comment: 'Git Repository File',
-          ai_feedback: review.review,
-          optimized_code: review.optimized_code,
-          explanation: review.explanation,
-          security_issues: review.security_issues,
-          language: review.language,
-          rating: review.rating,
+        // Format the reviews for display - each file review becomes a navigation item
+        const formattedReviews = data.reviews.map((fileReview, index) => ({
+          id: data.review_id, // All files share the same review ID (single database entry)
+          title: `� ${fileReview.file_path}`,
+          filename: fileReview.file_path,
+          comment: 'Repository File Review',
+          review: fileReview.review,
+          optimized_code: fileReview.optimized_code,
+          explanation: fileReview.explanation,
+          security_issues: fileReview.security_issues,
+          language: fileReview.language,
+          rating: fileReview.rating,
           created_at: new Date().toISOString(),
-          fileIndex: index + 1,
-          totalFiles: data.reviews.length,
+          fileIndex: fileReview.file_index,
+          totalFiles: fileReview.total_files,
           repositoryUrl: data.repository_url,
-          branch: data.branch
+          branch: data.branch,
+          original_code: fileReview.original_code,
+          is_repository_review: true
         }));
 
         // Set reviews for display
         setReviewList(formattedReviews);
         setCurrentReviewIndex(0);
         setReviewData(null);
-        setPastReviews((prev) => [...formattedReviews, ...prev]);
+        
+        // Only add the repository review once to past reviews (not each file)
+        const repoReviewSummary = {
+          id: data.review_id,
+          title: `🏗️ Repository: ${data.repository_url.split('/').pop().replace('.git', '')} (${data.branch})`,
+          comment: `${data.total_files} files reviewed`,
+          created_at: new Date().toISOString(),
+          is_repository_review: true
+        };
+        setPastReviews((prev) => [repoReviewSummary, ...prev]);
 
         console.log(`Successfully reviewed ${formattedReviews.length} files from Git repository`);
         
@@ -511,8 +522,42 @@ const CodeReviewApp = () => {
         // clear any previous rejection state so modal doesn't re-appear
         setShowRejectionModal(false);
         setSelectedForRejection(null);
-        setSelectedReview(full);
-        setReviewData(null);
+        
+        // Check if this is a repository review
+        if (full.is_repository_review && full.file_reviews) {
+          // Format file reviews for navigation
+          const formattedReviews = full.file_reviews.map((fileReview, index) => ({
+            id: full.id,
+            title: `📁 ${fileReview.file_path}`,
+            filename: fileReview.file_path,
+            comment: 'Repository File Review',
+            review: fileReview.review,
+            optimized_code: fileReview.optimized_code,
+            explanation: fileReview.explanation,
+            security_issues: fileReview.security_issues,
+            language: fileReview.language,
+            rating: fileReview.rating,
+            created_at: full.created_at,
+            fileIndex: fileReview.file_index,
+            totalFiles: fileReview.total_files,
+            repositoryUrl: full.repository_url,
+            branch: full.repository_branch,
+            original_code: fileReview.original_code,
+            is_repository_review: true
+          }));
+          
+          // Set up navigation through repository files
+          setReviewList(formattedReviews);
+          setCurrentReviewIndex(0);
+          setSelectedReview(null);
+          setReviewData(null);
+        } else {
+          // Regular single file review
+          setSelectedReview(full);
+          setReviewList([]);
+          setCurrentReviewIndex(0);
+          setReviewData(null);
+        }
         setCodeInput('');
       } else {
         console.error('Failed to fetch review detail', resp.status);

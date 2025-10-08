@@ -97,6 +97,13 @@ class Review(Base):
     security_issues = Column(Text, nullable=True)
     rating = Column(Integer, nullable=True)  # 1-10 rating extracted from review
     
+    # Repository-specific fields
+    is_repository_review = Column(String(10), default="false", nullable=False)  # "true" for repo reviews
+    repository_url = Column(String(500), nullable=True)  # Git repository URL
+    repository_branch = Column(String(100), nullable=True)  # Git branch name
+    total_files = Column(Integer, nullable=True)  # Total number of files in repo review
+    file_reviews = Column(Text, nullable=True)  # JSON structure containing individual file reviews
+    
     # User feedback
     feedback = Column(Text, nullable=True)
     rejection_reasons = Column(Text, nullable=True)  # JSON array of selected reasons
@@ -117,6 +124,7 @@ class Review(Base):
         Index('ix_reviews_user_created', 'user_id', 'created_at'),
         Index('ix_reviews_language_created', 'language', 'created_at'),
         Index('ix_reviews_status_created', 'status', 'created_at'),
+        Index('ix_reviews_repo_type', 'is_repository_review', 'created_at'),
     )
 
 Base.metadata.create_all(bind=engine)
@@ -763,6 +771,36 @@ def get_past_review_detail(review_id: int, current_user: User = Depends(get_curr
         review = db.query(Review).filter(Review.id == review_id, Review.user_id == current_user.id).first()
         if not review:
             raise HTTPException(status_code=404, detail="Review not found")
+        
+        # Check if this is a repository review
+        if review.is_repository_review == "true" and review.file_reviews:
+            # Parse file reviews from JSON
+            try:
+                file_reviews = json.loads(review.file_reviews)
+                return {
+                    "id": review.id,
+                    "title": review.title,
+                    "code": review.code,
+                    "review": review.review,
+                    "optimized_code": review.optimized_code,
+                    "explanation": review.explanation,
+                    "security_issues": review.security_issues,
+                    "language": review.language,
+                    "rating": review.rating,
+                    "feedback": review.feedback,
+                    "rejection_reason": review.rejection_reasons,
+                    "created_at": review.created_at.isoformat() if review.created_at else None,
+                    "is_repository_review": True,
+                    "repository_url": review.repository_url,
+                    "repository_branch": review.repository_branch,
+                    "total_files": review.total_files,
+                    "file_reviews": file_reviews  # Individual file reviews for navigation
+                }
+            except json.JSONDecodeError:
+                # Fallback if JSON parsing fails
+                pass
+        
+        # Return normal single file review
         return {
             "id": review.id,
             "title": review.title,
@@ -771,16 +809,19 @@ def get_past_review_detail(review_id: int, current_user: User = Depends(get_curr
             "optimized_code": review.optimized_code,
             "explanation": review.explanation,
             "security_issues": review.security_issues,
+            "language": review.language,
+            "rating": review.rating,
             "feedback": review.feedback,
             "rejection_reason": review.rejection_reasons,
             "created_at": review.created_at.isoformat() if review.created_at else None,
+            "is_repository_review": False
         }
     finally:
         db.close()
 
 @app.post("/generate-repo-review")
 async def generate_repo_review(data: GitRepoInput, current_user: User = Depends(get_current_user)):
-    """Generate reviews for all files in a Git repository."""
+    """Generate reviews for all files in a Git repository and store as single database entry."""
     temp_dir = None
     try:
         print(f"Starting repository review for: {data.repo_url}")
@@ -796,16 +837,25 @@ async def generate_repo_review(data: GitRepoInput, current_user: User = Depends(
         
         print(f"Found {len(code_files)} code files to review")
         
-        # Process each file
-        reviews = []
+        # Process each file and collect reviews
+        file_reviews = []
+        combined_code = ""
+        combined_review = ""
+        combined_optimized_code = ""
+        combined_explanation = ""
+        combined_security_issues = ""
+        languages_found = set()
+        total_rating = 0
+        valid_ratings = 0
+        
         db = SessionLocal()
         
         try:
+            # Extract repository name from URL for title
+            repo_name = data.repo_url.split('/')[-1].replace('.git', '')
+            
             for i, (file_path, file_content) in enumerate(code_files.items(), 1):
                 print(f"Processing file {i}/{len(code_files)}: {file_path}")
-                
-                # Create a CodeInput object for each file
-                code_input = CodeInput(code=file_content, filename=file_path)
                 
                 # Generate review using the existing generate_review logic
                 if not GOOGLE_API_KEY:
@@ -865,53 +915,76 @@ async def generate_repo_review(data: GitRepoInput, current_user: User = Depends(
                 # Detect programming language and extract rating
                 detected_language = detect_programming_language(file_content)
                 extracted_rating = extract_rating_from_review(review_text)
-
-                # Create title with file path
-                review_title = f"📁 {file_path}"
-                if review_text:
-                    first_line = review_text.split('\n')[0].strip()
-                    if first_line and len(first_line) < 100:
-                        review_title = f"📁 {file_path} - {first_line.lstrip('- ')}"
-
-                # Save review to database
-                new_review = Review(
-                    user_id=current_user.id,
-                    code=ensure_str(file_content),
-                    language=detected_language,
-                    review=review_text.strip(),
-                    title=review_title[:200],
-                    optimized_code=optimized_code.strip(),
-                    explanation=explanation_text.strip(),
-                    security_issues=security_issues.strip(),
-                    rating=extracted_rating,
-                    status="completed"
-                )
-                db.add(new_review)
-                db.commit()
-                db.refresh(new_review)
                 
-                reviews.append({
-                    "id": new_review.id,
+                # Track languages and ratings
+                languages_found.add(detected_language)
+                if extracted_rating:
+                    total_rating += extracted_rating
+                    valid_ratings += 1
+
+                # Create individual file review object
+                file_review = {
                     "file_path": file_path,
-                    "title": new_review.title,
-                    "review": new_review.review,
-                    "optimized_code": new_review.optimized_code,
-                    "explanation": new_review.explanation,
-                    "security_issues": new_review.security_issues,
-                    "language": new_review.language,
-                    "rating": new_review.rating,
-                })
+                    "original_code": file_content,
+                    "review": review_text.strip(),
+                    "optimized_code": optimized_code.strip(),
+                    "explanation": explanation_text.strip(),
+                    "security_issues": security_issues.strip(),
+                    "language": detected_language,
+                    "rating": extracted_rating,
+                    "file_index": i - 1,  # 0-based index for UI navigation
+                    "total_files": len(code_files)
+                }
+                
+                file_reviews.append(file_review)
+                
+                # Build combined content for the main review fields
+                combined_code += f"\n\n# File: {file_path}\n" + file_content
+                combined_review += f"\n\n## 📁 {file_path}\n{review_text}"
+                combined_optimized_code += f"\n\n# Optimized: {file_path}\n{optimized_code}"
+                combined_explanation += f"\n• {file_path}: {explanation_text}"
+                combined_security_issues += f"\n• {file_path}: {security_issues}"
+
+            # Calculate average rating
+            avg_rating = round(total_rating / valid_ratings) if valid_ratings > 0 else None
+            
+            # Create repository title
+            repo_title = f"🏗️ Repository: {repo_name} ({data.branch}) - {len(code_files)} files"
+            
+            # Create single database entry for the entire repository
+            new_review = Review(
+                user_id=current_user.id,
+                code=ensure_str(combined_code.strip()[:65000]),  # Limit size for database
+                language=", ".join(sorted(languages_found)) if languages_found else "Mixed",
+                review=combined_review.strip()[:65000],  # Limit size for database
+                title=repo_title[:200],
+                optimized_code=combined_optimized_code.strip()[:65000],  # Limit size for database
+                explanation=combined_explanation.strip()[:5000],
+                security_issues=combined_security_issues.strip()[:5000],
+                rating=avg_rating,
+                is_repository_review="true",
+                repository_url=data.repo_url,
+                repository_branch=data.branch,
+                total_files=len(code_files),
+                file_reviews=json.dumps(file_reviews),  # Store individual file reviews as JSON
+                status="completed"
+            )
+            db.add(new_review)
+            db.commit()
+            db.refresh(new_review)
+            
+            # Return response in the format expected by frontend
+            return {
+                "message": f"Successfully reviewed {len(code_files)} files from repository",
+                "repository_url": data.repo_url,
+                "branch": data.branch,
+                "total_files": len(code_files),
+                "review_id": new_review.id,
+                "reviews": file_reviews  # Individual file reviews for UI navigation
+            }
         
         finally:
             db.close()
-        
-        return {
-            "message": f"Successfully reviewed {len(reviews)} files from repository",
-            "repository_url": data.repo_url,
-            "branch": data.branch,
-            "total_files": len(reviews),
-            "reviews": reviews
-        }
         
     except Exception as e:
         print(f"Error processing repository: {str(e)}")

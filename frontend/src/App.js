@@ -19,7 +19,7 @@ const CodeReviewApp = () => {
   const [codeInput, setCodeInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [reviewData, setReviewData] = useState(null);
-  const [showFeedback, setShowFeedback] = useState(false);
+
   const [showThanks, setShowThanks] = useState(false);
   const [pastReviews, setPastReviews] = useState([]);
   const [selectedReview, setSelectedReview] = useState(null);
@@ -43,6 +43,13 @@ const CodeReviewApp = () => {
   const [includePatterns] = useState(['*.py', '*.js', '*.jsx', '*.ts', '*.tsx', '*.java', '*.cpp', '*.c', '*.h', '*.cs', '*.php', '*.rb', '*.go', '*.rs', '*.swift']);
   const [excludePatterns] = useState(['node_modules/**', '*.min.js', '*.min.css', 'dist/**', 'build/**', '__pycache__/**', '*.pyc', '.git/**']);
   const [maxFiles] = useState(50);
+  
+  // Pattern Learning states
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [userPreferences, setUserPreferences] = useState(null);
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [showPreferences, setShowPreferences] = useState(false);
 
   const removeSelectedFile = (idx) => {
     const updatedFiles = selectedFiles.filter((_, i) => i !== idx);
@@ -74,8 +81,10 @@ const CodeReviewApp = () => {
     if (token) {
       setIsAuthenticated(true);
       fetchPastReviews();
+      fetchUserPreferences();
     } else {
       setIsAuthenticated(false);
+      setUserPreferences(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
@@ -120,6 +129,55 @@ const CodeReviewApp = () => {
       }
     } catch (error) {
       console.error('Error fetching past reviews:', error);
+    }
+  };
+
+  // Pattern Learning Functions
+  const submitFeedback = async () => {
+    if (!feedbackText.trim()) return;
+    
+    try {
+      const response = await fetch(API_BASE + '/feedback/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ feedback_text: feedbackText }),
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        setFeedbackMessage(result.message);
+        if (result.changes && result.changes.length > 0) {
+          setFeedbackMessage(result.message + ": " + result.changes.join(", "));
+        }
+        setFeedbackText('');
+        setShowFeedbackModal(false);
+        // Refresh preferences after feedback
+        fetchUserPreferences();
+      } else {
+        setFeedbackMessage('Error submitting feedback');
+      }
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      setFeedbackMessage('Error submitting feedback');
+    }
+  };
+
+  const fetchUserPreferences = async () => {
+    try {
+      const response = await fetch(API_BASE + '/preferences/', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        const preferences = await response.json();
+        setUserPreferences(preferences);
+      }
+    } catch (error) {
+      console.error('Error fetching preferences:', error);
     }
   };
 
@@ -473,7 +531,7 @@ const CodeReviewApp = () => {
         setShowThanks(true);
       }
 
-      setShowFeedback(false);
+      // Feedback submitted successfully
     } catch (error) {
       console.error('Error submitting feedback:', error);
       alert('Failed to submit feedback. Please try again.');
@@ -1229,6 +1287,32 @@ const CodeReviewApp = () => {
                   <span className="text-[#343541]">Upload URL</span>
                 </button>
 
+                <div className="border-t border-gray-200 my-2"></div>
+                
+                <button
+                  onClick={() => {
+                    setShowFeedbackModal(true);
+                    setShowDropdown(false);
+                  }}
+                  className="w-full flex items-center gap-3 p-3 text-left hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <span className="w-5 h-5 text-[#343541] flex items-center justify-center">💡</span>
+                  <span className="text-[#343541]">Give Feedback</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    fetchUserPreferences().then(() => {
+                      setShowPreferences(true);
+                      setShowDropdown(false);
+                    });
+                  }}
+                  className="w-full flex items-center gap-3 p-3 text-left hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <span className="w-5 h-5 text-[#343541] flex items-center justify-center">⚙️</span>
+                  <span className="text-[#343541]">My Preferences</span>
+                </button>
+
                 <button
                   onClick={() => {
                     fileInputRef.current?.click();
@@ -1306,6 +1390,164 @@ const CodeReviewApp = () => {
                     className="flex-1 bg-[#10a37f] text-white px-4 py-2 rounded-lg hover:bg-[#0d8c6b] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isLoading ? 'Processing...' : 'Review Repository'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Feedback Modal */}
+          {showFeedbackModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-2xl shadow-lg p-6 w-full max-w-md mx-4">
+                <h3 className="text-xl font-semibold text-[#343541] mb-4">💡 Improve Future Reviews</h3>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-[#343541] mb-2">
+                      How can we improve your code reviews?
+                    </label>
+                    <textarea
+                      value={feedbackText}
+                      onChange={(e) => setFeedbackText(e.target.value)}
+                      placeholder="Examples:&#10;• 'Security analysis not required'&#10;• 'Focus more on performance'&#10;• 'Skip code optimization suggestions'&#10;• 'Need more detailed explanations'"
+                      rows="6"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#10a37f] text-[#343541] resize-none"
+                    />
+                  </div>
+                  
+                  {feedbackMessage && (
+                    <div className={`p-3 rounded-lg text-sm ${
+                      feedbackMessage.includes('updated') 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-blue-100 text-blue-800'
+                    }`}>
+                      {feedbackMessage}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-3 mt-6">
+                  <button
+                    onClick={() => {
+                      setShowFeedbackModal(false);
+                      setFeedbackText('');
+                      setFeedbackMessage('');
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-[#343541] rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={submitFeedback}
+                    disabled={!feedbackText.trim()}
+                    className="flex-1 bg-[#10a37f] text-white px-4 py-2 rounded-lg hover:bg-[#0d8c6b] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Submit Feedback
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* User Preferences Modal */}
+          {showPreferences && userPreferences && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-2xl shadow-lg p-6 w-full max-w-lg mx-4">
+                <h3 className="text-xl font-semibold text-[#343541] mb-4">🎯 Your Review Preferences</h3>
+                
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <span className="text-sm font-medium">Security Analysis</span>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      userPreferences.security_analysis 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {userPreferences.security_analysis ? 'ON' : 'OFF'}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <span className="text-sm font-medium">Performance Analysis</span>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      userPreferences.performance_analysis 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {userPreferences.performance_analysis ? 'ON' : 'OFF'}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <span className="text-sm font-medium">Code Optimization</span>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      userPreferences.code_optimization 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {userPreferences.code_optimization ? 'ON' : 'OFF'}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <span className="text-sm font-medium">Best Practices</span>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      userPreferences.best_practices 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {userPreferences.best_practices ? 'ON' : 'OFF'}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <span className="text-sm font-medium">Detailed Explanations</span>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      userPreferences.detailed_explanations 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {userPreferences.detailed_explanations ? 'ON' : 'OFF'}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <span className="text-sm font-medium">AST Analysis</span>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      userPreferences.ast_analysis 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {userPreferences.ast_analysis ? 'ON' : 'OFF'}
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="p-3 bg-blue-50 rounded-lg mb-4">
+                  <p className="text-sm text-blue-800">
+                    <strong>Feedback received:</strong> {userPreferences.feedback_count} times
+                  </p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    Preferences automatically learned from your feedback
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowPreferences(false)}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-[#343541] rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowPreferences(false);
+                      setShowFeedbackModal(true);
+                    }}
+                    className="flex-1 bg-[#10a37f] text-white px-4 py-2 rounded-lg hover:bg-[#0d8c6b] transition-colors"
+                  >
+                    Give Feedback
                   </button>
                 </div>
               </div>

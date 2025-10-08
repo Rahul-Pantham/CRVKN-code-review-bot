@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
 import google.generativeai as genai
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Index
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Index, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from passlib.context import CryptContext
 from jose import JWTError, jwt
@@ -128,11 +128,225 @@ class Review(Base):
         Index('ix_reviews_repo_type', 'is_repository_review', 'created_at'),
     )
 
+class UserPreferences(Base):
+    __tablename__ = "user_preferences"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Review preferences (learned from feedback)
+    security_analysis = Column(Boolean, default=True, nullable=False)
+    performance_analysis = Column(Boolean, default=True, nullable=False)
+    code_optimization = Column(Boolean, default=True, nullable=False)
+    best_practices = Column(Boolean, default=True, nullable=False)
+    detailed_explanations = Column(Boolean, default=True, nullable=False)
+    ast_analysis = Column(Boolean, default=True, nullable=False)
+    
+    # Feedback learning history (JSON)
+    feedback_history = Column(Text, nullable=True)  # JSON array of feedback entries
+    learning_patterns = Column(Text, nullable=True)  # JSON object of detected patterns
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship to user
+    user = relationship("User", back_populates="preferences")
+    
+    # Unique constraint - one preference record per user
+    __table_args__ = (
+        Index('ix_user_preferences_user_id', 'user_id'),
+    )
+
+# Update User model to include preferences relationship
+User.preferences = relationship("UserPreferences", back_populates="user", uselist=False)
+
 Base.metadata.create_all(bind=engine)
 
 # ------------------ Gemini Setup ------------------
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
+
+# ------------------ Pattern Learning Functions ------------------
+import json
+import re
+
+def get_user_preferences(db, user_id: int) -> UserPreferences:
+    """Get or create user preferences"""
+    preferences = db.query(UserPreferences).filter(UserPreferences.user_id == user_id).first()
+    if not preferences:
+        preferences = UserPreferences(user_id=user_id)
+        db.add(preferences)
+        db.commit()
+        db.refresh(preferences)
+    return preferences
+
+def learn_from_feedback(db, user_id: int, feedback_text: str):
+    """Analyze feedback and update user preferences"""
+    preferences = get_user_preferences(db, user_id)
+    
+    # Get existing feedback history
+    feedback_history = []
+    if preferences.feedback_history:
+        try:
+            feedback_history = json.loads(preferences.feedback_history)
+        except:
+            feedback_history = []
+    
+    # Add new feedback
+    new_feedback = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "feedback": feedback_text,
+        "changes_applied": []
+    }
+    
+    feedback_lower = feedback_text.lower()
+    
+    # Pattern matching for different types of feedback
+    changes_made = False
+    
+    # Security analysis patterns
+    if any(phrase in feedback_lower for phrase in [
+        "security analysis not required", "skip security", "no security needed",
+        "security not important", "don't need security analysis"
+    ]):
+        preferences.security_analysis = False
+        new_feedback["changes_applied"].append("Disabled security analysis")
+        changes_made = True
+    
+    elif any(phrase in feedback_lower for phrase in [
+        "need more security", "focus on security", "security is important",
+        "add security analysis", "security analysis required"
+    ]):
+        preferences.security_analysis = True
+        new_feedback["changes_applied"].append("Enabled security analysis")
+        changes_made = True
+    
+    # Performance analysis patterns
+    if any(phrase in feedback_lower for phrase in [
+        "performance not needed", "skip performance", "no performance analysis",
+        "performance not important"
+    ]):
+        preferences.performance_analysis = False
+        new_feedback["changes_applied"].append("Disabled performance analysis")
+        changes_made = True
+        
+    elif any(phrase in feedback_lower for phrase in [
+        "focus on performance", "need performance analysis", "performance is important",
+        "more performance suggestions"
+    ]):
+        preferences.performance_analysis = True
+        new_feedback["changes_applied"].append("Enabled performance analysis")
+        changes_made = True
+    
+    # Code optimization patterns
+    if any(phrase in feedback_lower for phrase in [
+        "no code optimization", "skip optimization", "don't optimize code",
+        "optimization not needed"
+    ]):
+        preferences.code_optimization = False
+        new_feedback["changes_applied"].append("Disabled code optimization")
+        changes_made = True
+        
+    elif any(phrase in feedback_lower for phrase in [
+        "need optimization", "optimize code", "focus on optimization"
+    ]):
+        preferences.code_optimization = True
+        new_feedback["changes_applied"].append("Enabled code optimization")
+        changes_made = True
+    
+    # Best practices patterns
+    if any(phrase in feedback_lower for phrase in [
+        "no best practices", "skip best practices", "best practices not needed"
+    ]):
+        preferences.best_practices = False
+        new_feedback["changes_applied"].append("Disabled best practices suggestions")
+        changes_made = True
+        
+    elif any(phrase in feedback_lower for phrase in [
+        "focus on best practices", "need best practices", "more best practices"
+    ]):
+        preferences.best_practices = True
+        new_feedback["changes_applied"].append("Enabled best practices suggestions")
+        changes_made = True
+    
+    # Explanation detail patterns
+    if any(phrase in feedback_lower for phrase in [
+        "too detailed", "brief explanation", "short explanation", "less detail"
+    ]):
+        preferences.detailed_explanations = False
+        new_feedback["changes_applied"].append("Switched to brief explanations")
+        changes_made = True
+        
+    elif any(phrase in feedback_lower for phrase in [
+        "more detailed", "detailed explanation", "explain more", "need more detail"
+    ]):
+        preferences.detailed_explanations = True
+        new_feedback["changes_applied"].append("Switched to detailed explanations")
+        changes_made = True
+    
+    # AST analysis patterns
+    if any(phrase in feedback_lower for phrase in [
+        "no ast analysis", "skip ast", "ast not needed"
+    ]):
+        preferences.ast_analysis = False
+        new_feedback["changes_applied"].append("Disabled AST analysis")
+        changes_made = True
+    
+    # Only add feedback if changes were made
+    if changes_made:
+        feedback_history.append(new_feedback)
+        preferences.feedback_history = json.dumps(feedback_history[-10:])  # Keep last 10 feedback entries
+        preferences.updated_at = datetime.utcnow()
+        db.commit()
+        
+        return {"message": "Preferences updated based on feedback", "changes": new_feedback["changes_applied"]}
+    
+    return {"message": "No preference changes detected from feedback", "changes": []}
+
+def generate_custom_prompt(preferences: UserPreferences, is_repository_review: bool = False) -> str:
+    """Generate customized prompt based on user preferences"""
+    
+    sections = []
+    
+    # Always include basic review
+    sections.append("###REVIEW###\n- Provide code review findings")
+    
+    # Add sections based on preferences
+    if preferences.security_analysis:
+        sections.append("###SECURITY###\n- Analyze security vulnerabilities and provide recommendations")
+    
+    if preferences.performance_analysis and preferences.ast_analysis:
+        sections.append("- Include performance optimization suggestions based on AST analysis")
+    elif preferences.performance_analysis:
+        sections.append("- Include performance optimization suggestions")
+    
+    if preferences.code_optimization:
+        sections.append("###OPTIMIZED_CODE###\n- Provide optimized version of the code")
+    
+    if preferences.detailed_explanations:
+        sections.append("###EXPLANATION###\n- Provide detailed explanation of the code and improvements")
+    else:
+        sections.append("###EXPLANATION###\n- Provide brief explanation of key improvements")
+    
+    if preferences.best_practices:
+        sections.append("- Include best practices recommendations")
+    
+    # Build the complete prompt
+    prompt_parts = [
+        "Analyze the following code according to the user's preferences:",
+        "",
+        "Return sections separated by exact markers:",
+        ""
+    ]
+    
+    prompt_parts.extend(sections)
+    
+    # Add context based on review type
+    if is_repository_review:
+        prompt_parts.append("\nNote: This is part of a repository review - consider file relationships and project context.")
+    
+    return "\n".join(prompt_parts)
 
 # ------------------ FastAPI App ------------------
 app = FastAPI()
@@ -538,6 +752,42 @@ def logout():
     # Frontend must delete token from localStorage/session
     return {"message": "Logged out successfully"}
 
+# Pattern Learning Endpoints
+class FeedbackRequest(BaseModel):
+    feedback_text: str
+
+@app.post("/feedback/")
+def submit_feedback(feedback: FeedbackRequest, current_user: User = Depends(get_current_user)):
+    """Submit feedback to improve future reviews"""
+    db = SessionLocal()
+    try:
+        result = learn_from_feedback(db, current_user.id, feedback.feedback_text)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing feedback: {str(e)}")
+    finally:
+        db.close()
+
+@app.get("/preferences/")
+def get_preferences(current_user: User = Depends(get_current_user)):
+    """Get current user preferences"""
+    db = SessionLocal()
+    try:
+        preferences = get_user_preferences(db, current_user.id)
+        return {
+            "security_analysis": preferences.security_analysis,
+            "performance_analysis": preferences.performance_analysis,
+            "code_optimization": preferences.code_optimization,
+            "best_practices": preferences.best_practices,
+            "detailed_explanations": preferences.detailed_explanations,
+            "ast_analysis": preferences.ast_analysis,
+            "feedback_count": len(json.loads(preferences.feedback_history)) if preferences.feedback_history else 0
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting preferences: {str(e)}")
+    finally:
+        db.close()
+
 @app.post("/admin/login")
 def admin_login(credentials: dict):
     username = credentials.get("username")
@@ -588,56 +838,101 @@ def generate_review(data: CodeInput, current_user: User = Depends(get_current_us
             explanation_text = "Mock explanation (no AI)."
             security_issues = ""
         else:
-            # Perform AST analysis first
-            print(f"Performing AST analysis for code review...")
-            detected_language = detect_programming_language(data.code)
-            ast_analysis = analyzer.analyze_code(data.code, detected_language)
+            # Get user preferences for customized review
+            preferences = get_user_preferences(db, current_user.id)
             
-            # Format AST analysis for Gemini
-            ast_summary = format_ast_analysis_for_gemini(ast_analysis)
+            # Perform AST analysis based on user preference
+            detected_language = detect_programming_language(data.code)
+            ast_analysis = None
+            ast_summary = ""
+            
+            if preferences.ast_analysis:
+                print(f"Performing AST analysis for code review...")
+                ast_analysis = analyzer.analyze_code(data.code, detected_language)
+                ast_summary = format_ast_analysis_for_gemini(ast_analysis)
             
             # Truncate long code submissions to limit model input size and latency
-            max_chars = 3500  # Reduced to make room for AST analysis
+            max_chars = 3500 if preferences.ast_analysis else 4000
             code_for_prompt = data.code
             if isinstance(code_for_prompt, str) and len(code_for_prompt) > max_chars:
                 code_for_prompt = code_for_prompt[:max_chars] + "\n# ... (truncated)"
 
-            # Enhanced prompt with AST analysis
-            combined_prompt = f"""
-            You are an expert code reviewer. I've performed automated AST analysis on the code below. Please provide a comprehensive review considering both the AST analysis findings and your own analysis.
-
-            {ast_summary}
-
-            ## 📝 Code to Review:
-            ```{detected_language}
-            {code_for_prompt}
-            ```
-
-            Please provide your review in the following sections separated by the exact markers:
-
-            ###REVIEW###
-            - Provide 5-7 detailed bullet points covering:
-              1. Code structure and organization
-              2. Algorithm efficiency and logic
-              3. Error handling and edge cases
-              4. Code readability and maintainability
-              5. Integration with AST findings above
-              6. Any additional issues not caught by AST analysis
-
-            ###OPTIMIZED_CODE###
-            - Provide the optimized code addressing the issues found in both AST analysis and your review
-            - Include comments explaining key improvements
-            - Use proper code fencing with language specification
-
-            ###EXPLANATION###
-            - In 2-3 sentences, explain what the code does
-            - List 3-4 key improvements made based on AST analysis and manual review
-
-            ###SECURITY###
-            - Provide security risk level (Low/Medium/High)
-            - List specific security issues found (combining AST findings with manual analysis)
-            - Provide actionable recommendations for each issue
-            """
+            # Build customized prompt based on user preferences
+            prompt_parts = [
+                "You are an expert code reviewer.",
+            ]
+            
+            if preferences.ast_analysis and ast_summary:
+                prompt_parts.extend([
+                    "I've performed automated AST analysis on the code below.",
+                    "Please provide a comprehensive review considering both the AST analysis findings and your own analysis.",
+                    "",
+                    ast_summary
+                ])
+            
+            prompt_parts.extend([
+                f"## 📝 Code to Review:",
+                f"```{detected_language}",
+                f"{code_for_prompt}",
+                f"```",
+                "",
+                "Please provide your review in the following sections separated by the exact markers:",
+                "",
+                "###REVIEW###"
+            ])
+            
+            # Customize review focus based on preferences
+            review_points = ["- Provide detailed bullet points covering:"]
+            if preferences.best_practices:
+                review_points.append("  • Code structure and best practices")
+            if preferences.performance_analysis:
+                review_points.append("  • Algorithm efficiency and performance")
+            review_points.extend([
+                "  • Error handling and edge cases",
+                "  • Code readability and maintainability"
+            ])
+            if preferences.ast_analysis:
+                review_points.append("  • Integration with AST findings above")
+            
+            prompt_parts.extend(review_points)
+            prompt_parts.append("")
+            
+            # Add sections based on user preferences
+            if preferences.code_optimization:
+                prompt_parts.extend([
+                    "###OPTIMIZED_CODE###",
+                    "- Provide optimized code addressing identified issues",
+                    "- Include comments explaining key improvements",
+                    "- Use proper code fencing with language specification",
+                    ""
+                ])
+            
+            # Explanation detail level based on preferences
+            if preferences.detailed_explanations:
+                prompt_parts.extend([
+                    "###EXPLANATION###",
+                    "- Provide detailed explanation of what the code does",
+                    "- List 4-5 key improvements made and their benefits",
+                    ""
+                ])
+            else:
+                prompt_parts.extend([
+                    "###EXPLANATION###",
+                    "- Brief explanation of what the code does",
+                    "- List 2-3 key improvements made",
+                    ""
+                ])
+            
+            # Security analysis based on preferences
+            if preferences.security_analysis:
+                prompt_parts.extend([
+                    "###SECURITY###",
+                    "- Provide security risk level (Low/Medium/High)",
+                    "- List specific security issues found",
+                    "- Provide actionable recommendations for each issue"
+                ])
+            
+            combined_prompt = "\n".join(prompt_parts)
 
             combined_resp = extract_text_from_gemini_response(model.generate_content(combined_prompt))
 
@@ -853,56 +1148,103 @@ async def generate_repo_review(data: GitRepoInput, current_user: User = Depends(
             # Extract repository name from URL for title
             repo_name = data.repo_url.split('/')[-1].replace('.git', '')
             
-            # Initialize AST analyzer for repository review
-            analyzer = CodeAnalyzer()
+            # Get user preferences for repository review
+            preferences = get_user_preferences(db, current_user.id)
+            
+            # Initialize AST analyzer for repository review (if enabled)
+            analyzer = CodeAnalyzer() if preferences.ast_analysis else None
             
             for i, (file_path, file_content) in enumerate(code_files.items(), 1):
                 print(f"Processing file {i}/{len(code_files)}: {file_path}")
                 
-                # Generate review using AST analysis + Gemini
+                # Generate review using user preferences
                 if not GOOGLE_API_KEY:
                     review_text = f"⚠️ Mock review for {file_path}: Add comments, handle edge cases, and write unit tests."
                     optimized_code = file_content
                     explanation_text = f"Mock explanation for {file_path} (no AI)."
                     security_issues = "No security analysis available (no API key)"
                 else:
-                    # Perform AST analysis for this file
                     file_language = detect_programming_language(file_content)
-                    ast_analysis = analyzer.analyze_code(file_content, file_language)
-                    ast_summary = format_ast_analysis_for_gemini(ast_analysis)
                     
-                    # Truncate for repository files (smaller limit)
-                    max_chars = 3000
+                    # Perform AST analysis if enabled
+                    ast_analysis = None
+                    ast_summary = ""
+                    if preferences.ast_analysis and analyzer:
+                        ast_analysis = analyzer.analyze_code(file_content, file_language)
+                        ast_summary = format_ast_analysis_for_gemini(ast_analysis)
+                    
+                    # Truncate based on AST preference
+                    max_chars = 2500 if preferences.ast_analysis else 3000
                     code_for_prompt = file_content
                     if isinstance(code_for_prompt, str) and len(code_for_prompt) > max_chars:
                         code_for_prompt = code_for_prompt[:max_chars] + "\n# ... (truncated)"
 
-                    combined_prompt = f"""
-                    Review the file '{file_path}' from a Git repository. AST analysis has been performed:
-
-                    {ast_summary}
-
-                    ## File: {file_path}
-                    ```{file_language}
-                    {code_for_prompt}
-                    ```
-
-                    Provide sections separated by exact markers:
-
-                    ###REVIEW###
-                    - Provide 4-5 bullet points for {file_path} considering AST analysis findings
-                    - Focus on file-specific issues and how it fits in the repository context
-
-                    ###OPTIMIZED_CODE###
-                    - Provide optimized version addressing AST and manual findings
-                    - Include brief comments for key improvements
-
-                    ###EXPLANATION###
-                    - Explain what {file_path} does and key improvements made
-
-                    ###SECURITY###
-                    - Security risk level and specific issues for {file_path}
-                    """
+                    # Build customized prompt for repository file
+                    prompt_parts = [
+                        f"Review the file '{file_path}' from a Git repository."
+                    ]
+                    
+                    if preferences.ast_analysis and ast_summary:
+                        prompt_parts.extend([
+                            "AST analysis has been performed:",
+                            "",
+                            ast_summary
+                        ])
+                    
+                    prompt_parts.extend([
+                        f"## File: {file_path}",
+                        f"```{file_language}",
+                        f"{code_for_prompt}",
+                        f"```",
+                        "",
+                        "Provide sections separated by exact markers:",
+                        "",
+                        "###REVIEW###"
+                    ])
+                    
+                    # Customize review points for repository context
+                    if preferences.ast_analysis:
+                        prompt_parts.append(f"- Provide 4-5 bullet points for {file_path} considering AST analysis findings")
+                    else:
+                        prompt_parts.append(f"- Provide 4-5 bullet points for {file_path}")
+                    
+                    prompt_parts.append("- Focus on file-specific issues and repository context")
+                    
+                    if preferences.performance_analysis:
+                        prompt_parts.append("- Include performance considerations for this file")
+                    
+                    prompt_parts.append("")
+                    
+                    # Add optional sections based on preferences
+                    if preferences.code_optimization:
+                        prompt_parts.extend([
+                            "###OPTIMIZED_CODE###",
+                            "- Provide optimized version addressing identified issues",
+                            "- Include brief comments for key improvements",
+                            ""
+                        ])
+                    
+                    if preferences.detailed_explanations:
+                        prompt_parts.extend([
+                            "###EXPLANATION###",
+                            f"- Detailed explanation of what {file_path} does",
+                            "- Key improvements made and their benefits",
+                            ""
+                        ])
+                    else:
+                        prompt_parts.extend([
+                            "###EXPLANATION###",
+                            f"- Brief explanation of what {file_path} does and key improvements",
+                            ""
+                        ])
+                    
+                    if preferences.security_analysis:
+                        prompt_parts.extend([
+                            "###SECURITY###",
+                            f"- Security risk level and specific issues for {file_path}"
+                        ])
+                    
+                    combined_prompt = "\n".join(prompt_parts)
 
                     try:
                         combined_resp = extract_text_from_gemini_response(model.generate_content(combined_prompt))

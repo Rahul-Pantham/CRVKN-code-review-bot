@@ -72,14 +72,14 @@ const Login = ({ setIsAuthenticated, setUsername, setShowLogin, setShowRegister,
           {error && <p className="text-red-500 text-sm">{error}</p>}
           <button
             onClick={handleLogin}
-            className="w-full bg-[#10a37f] text-white py-3 rounded-lg hover:bg-[#0d8c6b] font-medium"
+            className="w-full btn btn-auth justify-center text-base py-3"
           >
             Login
           </button>
           <p className="text-gray-300 text-sm text-center">
             Don't have an account?{' '}
             <span
-              className="text-[#10a37f] cursor-pointer hover:underline"
+              className="text-[var(--color-auth)] cursor-pointer hover:underline"
               onClick={() => { if (setShowRegister) { setShowLogin && setShowLogin(false); setShowRegister(true); } else { navigate('/register'); } }}
             >
               Register

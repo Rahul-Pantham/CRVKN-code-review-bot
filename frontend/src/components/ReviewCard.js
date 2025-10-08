@@ -131,11 +131,11 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
 
   return (
     <div className="space-y-4">
-      <div className="bg-[#2b2b2b] rounded-md px-3 py-2 text-sm font-semibold text-gray-200">{review.filename || review.title || 'Review'}</div>
+  <div className="card px-3 py-2 text-sm font-semibold text-gray-200 gradient-accent rounded-md shadow-md">{review.filename || review.title || 'Review'}</div>
       <div className="pt-2">
         {/* Main AI review text */}
         {rawReviewText ? (
-          <div className={`bg-[#40414f] rounded-xl p-4 ${getSectionBorderClass(sectionStates.review)}`}>
+          <div className={`card card-hover p-4 ${getSectionBorderClass(sectionStates.review)}`}>
             <div className={`text-base md:text-lg mb-2 font-semibold tracking-wide ${getSectionHeaderClass(sectionStates.review)}`}>
               Review
               {sectionStates.review === 'accepted' && <span className="ml-2">✓</span>}
@@ -148,7 +148,7 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
 
         {/* Original code / submitted content */}
         {codeContent ? (
-          <div className={`bg-[#40414f] rounded-xl p-4 mt-2 overflow-hidden ${getSectionBorderClass(sectionStates.originalCode)}`}>
+          <div className={`card card-hover p-4 mt-2 overflow-hidden ${getSectionBorderClass(sectionStates.originalCode)}`}>
             <div className={`text-base md:text-lg mb-2 font-semibold tracking-wide ${getSectionHeaderClass(sectionStates.originalCode)}`}>
               Original Code
               {sectionStates.originalCode === 'accepted' && <span className="ml-2">✓</span>}
@@ -161,7 +161,7 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
 
         {/* Optimized code */}
         {review.optimized_code && (
-          <div className={`bg-[#40414f] rounded-xl p-6 overflow-hidden mt-2 ${getSectionBorderClass(sectionStates.optimizedCode)}`}>
+          <div className={`card card-hover p-6 overflow-hidden mt-2 ${getSectionBorderClass(sectionStates.optimizedCode)}`}>
             <div className={`text-base md:text-lg mb-2 font-semibold tracking-wide ${getSectionHeaderClass(sectionStates.optimizedCode)}`}>
               Optimized Code
               {sectionStates.optimizedCode === 'accepted' && <span className="ml-2">✓</span>}
@@ -174,7 +174,7 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
 
         {/* Explanation */}
         {review.explanation && (
-          <div className={`bg-[#40414f] rounded-xl p-4 mt-2 ${getSectionBorderClass(sectionStates.explanation)}`}>
+          <div className={`card card-hover p-4 mt-2 ${getSectionBorderClass(sectionStates.explanation)}`}>
             <div className={`text-base md:text-lg mb-2 font-semibold tracking-wide ${getSectionHeaderClass(sectionStates.explanation)}`}>
               Explanation
               {sectionStates.explanation === 'accepted' && <span className="ml-2">✓</span>}
@@ -187,7 +187,7 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
 
         {/* Security Check (extracted) OR fallback to security_issues */}
         {(securityCheckContent || review.security_issues) && (
-          <div className={`bg-[#40414f] rounded-xl p-6 mt-2 ${getSectionBorderClass(sectionStates.securityAnalysis)}`}>
+          <div className={`card card-hover p-6 mt-2 ${getSectionBorderClass(sectionStates.securityAnalysis)}`}>
             <div className={`text-base md:text-lg mb-2 font-semibold tracking-wide ${getSectionHeaderClass(sectionStates.securityAnalysis)}`}>
               Security Check
               {sectionStates.securityAnalysis === 'accepted' && <span className="ml-2">✓</span>}
@@ -204,7 +204,7 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
 
         {/* Overall Actions */}
         {showActions && (
-          <div className="pt-6 border-t border-gray-600 mt-6">
+          <div className="pt-6 divider mt-6">
             <div className="mb-3">
               <h4 className="text-sm font-medium text-gray-300 mb-2">Overall Review Decision:</h4>
               <div className="text-xs text-gray-400">

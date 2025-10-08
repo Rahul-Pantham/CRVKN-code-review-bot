@@ -1,162 +1,75 @@
-/*import React, { useState } from "react";
+import React from "react"; // simplified, no local state needed now
 
-export default function Sidebar({ reviews = [], onSelectReview, username = "User", onLogout }) {
-  const [expanded, setExpanded] = useState(false);
-
-  const truncate = (s, n = 36) => (s?.length > n ? s.slice(0, n - 1) + "…" : s);
-
-  return (
-    <aside
-      onMouseEnter={() => setExpanded(true)}
-      onMouseLeave={() => setExpanded(false)}
-      className="flex flex-col justify-between text-white transition-all duration-200"
-      style={{
-        width: expanded ? 260 : 64,
-        minWidth: expanded ? 260 : 64,
-        background: "#343541",
-        height: "100vh",
-        borderRight: "1px solid rgba(255,255,255,0.03)"
-      }}
-    >
-      {/* Logo *//*}
-      <div className="p-4 flex items-center gap-3">
-        <div className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <rect x="1" y="1" width="22" height="22" rx="3" stroke="rgba(255,255,255,0.12)" strokeWidth="1.5"/>
-            <path d="M6 12l3 3 8-8" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </div>
-        {expanded && <div className="font-semibold text-lg">CRVKN</div>}
-      </div>
-
-      {/* Past Reviews *//*}
-      <div style={{ overflowY: "auto", padding: 12 }}>
-        {expanded && <div className="text-gray-300 mb-3 px-1">Past reviews</div>}
-        <ul className="space-y-3">
-          {reviews.length === 0 && expanded && (
-            <li className="text-gray-500 px-1">No past reviews yet</li>
-          )}
-          {reviews.map((r) => (
-            <li
-              key={r.id}
-              onClick={() => onSelectReview?.(r)}
-              className="cursor-pointer"
-              title={r.title || "Review"}
-              style={{
-                padding: expanded ? "10px 12px" : 8,
-                background: expanded ? "#40414f" : "transparent",
-                borderRadius: 8,
-              }}
-            >
-              <div style={{ fontSize: expanded ? 14 : 12, color: "#fff" }}>
-                {expanded ? truncate(r.title || r.comment, 52) : truncate(r.title || r.comment, 18)}
-              </div>
-              {expanded && r.created_at && (
-                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", marginTop: 6 }}>
-                  {new Date(r.created_at).toLocaleDateString()}
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* User info *//*}
-      <div style={{ padding: 16, borderTop: "1px solid rgba(255,255,255,0.03)" }}>
-        {expanded ? (
-          <div>
-            <div className="text-xs text-gray-400">Logged in as</div>
-            <div className="font-semibold">{username}</div>
-            <button onClick={() => onLogout && onLogout()} className="mt-3 w-full bg-[#10a37f] text-white py-2 rounded-md text-sm">Logout</button>
-          </div>
-        ) : (
-          <div style={{ fontSize: 14, color: "rgba(255,255,255,0.6)" }}>👤</div>
-        )}
-      </div>
-    </aside>
-  );
-}*/
-
-import React, { useState } from "react";
+// Lightweight relative time formatter (avoids date-fns dependency)
+const timeAgo = (inputDate) => {
+  try {
+    const date = typeof inputDate === 'string' ? new Date(inputDate) : inputDate;
+    const diffMs = Date.now() - date.getTime();
+    const sec = Math.floor(diffMs / 1000);
+    if (sec < 60) return sec <= 1 ? 'just now' : sec + 's ago';
+    const min = Math.floor(sec / 60);
+    if (min < 60) return min + 'm ago';
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return hr + 'h ago';
+    const day = Math.floor(hr / 24);
+    if (day < 30) return day + 'd ago';
+    const mon = Math.floor(day / 30);
+    if (mon < 12) return mon + 'mo ago';
+    const yr = Math.floor(mon / 12);
+    return yr + 'y ago';
+  } catch (e) {
+    return '';
+  }
+};
 
 export default function Sidebar({ reviews = [], onSelectReview, username = null, onLogin, onLogout }) {
-  const [expanded, setExpanded] = useState(false);
-
   const truncate = (s, n = 36) => (s?.length > n ? s.slice(0, n - 1) + "…" : s);
+
+  // Function to get initials from username
+  const getInitials = (name) => {
+    if (!name) return "";
+    const parts = name.trim().split(" ");
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+  };
 
   return (
     <aside
-      onMouseEnter={() => setExpanded(true)}
-      onMouseLeave={() => setExpanded(false)}
-      className="flex flex-col justify-between text-white transition-all duration-200"
+      className="flex flex-col justify-between text-white surface-alt backdrop-blur-md shadow-lg card"
       style={{
-        position: 'fixed',
+        position: "fixed",
         left: 0,
         top: 0,
         zIndex: 20,
-        width: expanded ? 260 : 64,
-        minWidth: expanded ? 260 : 64,
-        background: "#343541", // ChatGPT-like dark background
+        width: 280,
+        minWidth: 280,
         height: "100vh",
-        borderRight: "1px solid rgba(255,255,255,0.05)",
+        borderRight: "1px solid rgba(255,255,255,0.1)",
+        padding: 16,
       }}
     >
-      {/* Logo */}
-      <div className="p-4 flex items-center gap-3">
-        <div className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <rect
-              x="1"
-              y="1"
-              width="22"
-              height="22"
-              rx="3"
-              stroke="rgba(255,255,255,0.12)"
-              strokeWidth="1.5"
-            />
-            <path
-              d="M6 12l3 3 8-8"
-              stroke="white"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
-        {expanded && <div className="font-semibold text-lg">CRVKN</div>}
-      </div>
+      {/* Past History Title */}
+  <div className="text-lg font-semibold mb-4 tracking-wide">Past History</div>
 
-      {/* Past Reviews */}
-      <div style={{ overflowY: "auto", padding: 12, flex: 1 }}>
-        {expanded && <div className="text-gray-300 mb-3 px-1">Past reviews</div>}
+      {/* Reviews List */}
+      <div style={{ overflowY: "auto", flex: 1 }}>
         <ul className="space-y-3">
-          {reviews.length === 0 && expanded && (
-            <li className="text-gray-500 px-1">No past reviews yet</li>
+          {reviews.length === 0 && (
+            <li className="text-gray-500 px-2 py-3 rounded bg-white/10">No past history yet</li>
           )}
           {reviews.map((r) => (
             <li
               key={r.id}
               onClick={() => onSelectReview?.(r)}
-              className="cursor-pointer hover:bg-[#40414f] rounded-md"
-              style={{
-                padding: expanded ? "10px 12px" : 8,
-              }}
+              className="cursor-pointer px-4 py-3 rounded card card-hover transition-base"
               title={r.title || r.comment || "Review"}
             >
-              <div style={{ fontSize: expanded ? 14 : 12, color: "#fff" }}>
-                {expanded
-                  ? truncate(r.title || r.comment, 52)
-                  : truncate(r.title || r.comment, 18)}
+              <div className="font-semibold text-gray-900 dark:text-white">
+                {truncate(r.title || r.comment, 40)}
               </div>
-              {expanded && r.created_at && (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "rgba(255,255,255,0.35)",
-                    marginTop: 6,
-                  }}
-                >
-                  {new Date(r.created_at).toLocaleDateString()}
+              {r.created_at && (
+                <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  {timeAgo(r.created_at)}
                 </div>
               )}
             </li>
@@ -164,39 +77,30 @@ export default function Sidebar({ reviews = [], onSelectReview, username = null,
         </ul>
       </div>
 
-      {/* User info / Login-Logout Section */}
-      <div
-        style={{
-          padding: 16,
-          borderTop: "1px solid rgba(255,255,255,0.05)",
-        }}
-      >
-        {username ? (
-          // ✅ Logged-in view
-          expanded ? (
-            <div>
-              <div className="text-xs text-gray-400">Logged in as</div>
-              <div className="font-semibold">{username}</div>
-              <button
-                onClick={() => onLogout && onLogout()}
-                className="mt-3 w-full bg-[#10a37f] text-white py-2 rounded-md text-sm hover:bg-[#0e906f]"
-              >
-                Logout
-              </button>
-            </div>
-          ) : (
-            <div style={{ fontSize: 18, color: "rgba(255,255,255,0.6)" }}>👤</div>
-          )
-        ) : (
-          // ❌ Logged-out view
-          <button
-            onClick={() => onLogin && onLogin()}
-            className="w-full bg-[#10a37f] text-white py-2 rounded-md text-sm hover:bg-[#0e906f]"
-          >
-            {expanded ? "Login" : "🔑"}
-          </button>
-        )}
-      </div>
+      {/* User Info at Bottom Left */}
+      {username && (
+  <div className="mt-6 flex items-center gap-3 divider pt-4">
+          <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-lg select-none">
+            {getInitials(username)}
+          </div>
+          <div className="flex flex-col">
+            <div className="font-semibold text-gray-900 dark:text-white">{username}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">john.doe@email.com</div>
+          </div>
+        </div>
+      )}
+
+      {/* Login/Logout Button */}
+      {!username && (
+        <button onClick={() => onLogin && onLogin()} className="mt-6 w-full btn btn-primary gradient-accent shadow-md hover:opacity-95">
+          Login
+        </button>
+      )}
+      {username && (
+        <button onClick={() => onLogout && onLogout()} className="mt-6 w-full btn btn-outline">
+          Logout
+        </button>
+      )}
     </aside>
   );
 }

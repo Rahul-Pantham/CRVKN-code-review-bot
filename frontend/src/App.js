@@ -192,16 +192,16 @@ const CodeReviewApp = () => {
   return (
     <div className="min-h-screen bg-[#343541] relative">
       <div className="fixed top-4 right-4 z-50 flex gap-3">
-        <button onClick={() => window.location.href = '/admin/login'} className="bg-[#8B5CF6] text-white px-4 py-2 rounded hover:bg-[#7C3AED] transition-colors">Admin</button>
-  {isAuthenticated ? <button onClick={handleLogout} className="btn btn-logout">Logout</button> : <button onClick={() => setShowLogin(true)} className="bg-transparent border border-white text-white px-4 py-2 rounded">Login</button>}
+    <button onClick={() => window.location.href = '/admin/login'} className="bg-[#8B5CF6] text-white px-4 py-2 rounded hover:bg-[#7C3AED] transition-colors">Admin</button>
+  {isAuthenticated ? <button onClick={handleLogout} className="btn btn-logout">Logout</button> : <button onClick={() => setShowLogin(true)} className="btn btn-auth">Login</button>}
       </div>
 
-      {!showHistory && <button onClick={() => setShowHistory(true)} className="fixed left-6 top-4 z-50 btn btn-outline">Past History</button>}
+  {!showHistory && <button onClick={() => setShowHistory(true)} className="fixed left-6 top-4 z-50 btn btn-primary">History</button>}
       {showHistory && (
         <div className="fixed inset-0 z-40 flex items-start justify-center pt-24 bg-black/70 backdrop-blur-sm">
           <div className="card w-full max-w-xl max-h-[70vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-              <h3 className="text-lg font-semibold">Past History</h3>
+              <h3 className="text-lg font-semibold">History</h3>
               <button onClick={() => setShowHistory(false)} className="icon-btn" aria-label="Close history">&times;</button>
             </div>
             <div className="overflow-y-auto px-5 py-4 space-y-2">
@@ -231,6 +231,20 @@ const CodeReviewApp = () => {
 
         {!selectedReview && !showThanks && (
           <div className="space-y-10">
+            {/* Intro blurb about the bot */}
+            <div className="blurb">
+              <div className="blurb-title">Meet your AI code reviewer</div>
+              <p className="blurb-text">
+                CRVKN inspects logic, style, and security patterns in your snippets or uploads and returns
+                concise, prioritized suggestions with ready-to-apply fixes.
+              </p>
+              <div className="blurb-badges">
+                <span className="badge-pill">Multi‑file</span>
+                <span className="badge-pill">AST‑aware</span>
+                <span className="badge-pill">Actionable fixes</span>
+                <span className="badge-pill">Learns from feedback</span>
+              </div>
+            </div>
             <div className="input-shell">
               <textarea placeholder="Paste your code for intelligent AI review..." value={codeInput} onChange={e => setCodeInput(e.target.value)} className="input-area" rows={8} />
               <div className="input-toolbar">
@@ -289,7 +303,7 @@ const CodeReviewApp = () => {
         <div className="absolute left-6 top-[140px] z-40 menu p-3 w-64">
           <button onClick={() => { setShowGitModal(true); setShowDropdown(false); }} className="menu-item"><GitBranch className="w-5 h-5 text-muted" /><span>Git Repository</span></button>
           <div className="menu-separator" />
-          <button onClick={() => { setShowFeedbackModal(true); setShowDropdown(false); }} className="menu-item"><span className="w-5 h-5 flex items-center justify-center">💡</span><span>Give Feedback</span></button>
+          <button onClick={() => { setShowFeedbackModal(true); setShowDropdown(false); }} className="menu-item"><span className="w-5 h-5 flex items-center justify-center">💡</span><span>Preferences</span></button>
           <button onClick={() => { fileInputRef.current?.click(); setShowDropdown(false); }} className="menu-item"><Upload className="w-5 h-5" /><span>Upload File</span></button>
           <input ref={fileInputRef} type="file" multiple className="hidden" accept=".txt,.py,.js,.java,.cpp,.c,.html,.css,.json" onChange={handleFileUpload} />
         </div>

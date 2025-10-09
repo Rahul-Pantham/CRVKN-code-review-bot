@@ -43,44 +43,65 @@ const Login = ({ setIsAuthenticated, setUsername, setShowLogin, setShowRegister,
   };
 
   return (
-    <div className="min-h-screen bg-[#343541] flex items-center justify-center">
-      <div className="bg-[#40414f] rounded-2xl shadow-lg p-8 w-full max-w-md">
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
-            <div className="w-8 h-8 bg-[#343541] rounded flex items-center justify-center">
-              <div className="w-4 h-4 border-2 border-white rounded-sm"></div>
-            </div>
+    <div className="min-h-screen bg-[#343541] flex items-center justify-center p-4">
+      <div className="card w-full max-w-md p-8 relative">
+        {setShowLogin && (
+          <button
+            aria-label="Close"
+            onClick={() => setShowLogin(false)}
+            className="absolute -top-3 -right-3 icon-btn"
+          >
+            &times;
+          </button>
+        )}
+
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-12 h-12 rounded-full flex items-center justify-center brand-badge">
+            <div className="w-5 h-5 border-2 border-white/90 rounded-sm" />
           </div>
-          <span className="text-white text-xl font-semibold">CRVKN</span>
+          <span className="text-white text-xl font-semibold tracking-wide">CRVKN</span>
         </div>
-        <h2 className="text-white text-2xl font-medium mb-6">Login</h2>
+
+        <h2 className="text-white text-2xl font-semibold mb-5">Login</h2>
+
         <div className="space-y-4">
           <input
             type="text"
             placeholder="Username"
             value={usernameLocal}
             onChange={(e) => setLocalUsername(e.target.value)}
-            className="w-full bg-[#343541] text-white placeholder-gray-400 rounded-lg p-3 outline-none"
+            className="field"
           />
           <input
             type="password"
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full bg-[#343541] text-white placeholder-gray-400 rounded-lg p-3 outline-none"
+            className="field"
           />
-          {error && <p className="text-red-500 text-sm">{error}</p>}
-          <button
-            onClick={handleLogin}
-            className="w-full btn btn-auth justify-center text-base py-3"
-          >
+
+          {error && (
+            <div className="text-sm px-3 py-2 rounded border border-red-500/30 bg-red-500/10 text-red-300">
+              {error}
+            </div>
+          )}
+
+          <button onClick={handleLogin} className="w-full btn btn-auth justify-center text-base py-3">
             Login
           </button>
+
           <p className="text-gray-300 text-sm text-center">
             Don't have an account?{' '}
             <span
               className="text-[var(--color-auth)] cursor-pointer hover:underline"
-              onClick={() => { if (setShowRegister) { setShowLogin && setShowLogin(false); setShowRegister(true); } else { navigate('/register'); } }}
+              onClick={() => {
+                if (setShowRegister) {
+                  setShowLogin && setShowLogin(false);
+                  setShowRegister(true);
+                } else {
+                  navigate('/register');
+                }
+              }}
             >
               Register
             </span>

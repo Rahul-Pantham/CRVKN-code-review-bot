@@ -82,7 +82,7 @@ const CodeReviewApp = () => {
     const authToken = overrideToken || token;
     if (!authToken) return;
     try {
-      const resp = await fetch(API_BASE + '/user/preferences', { headers: { Authorization: `Bearer ${authToken}` } });
+      const resp = await fetch(API_BASE + '/preferences/', { headers: { Authorization: `Bearer ${authToken}` } });
       if (resp.ok) setUserPreferences(await resp.json());
     } catch (e) { /* ignore */ }
   };
@@ -98,21 +98,57 @@ const CodeReviewApp = () => {
 
   const handleFileUpload = async (e) => {
     const files = e.target.files;
-    if (!files) return;
+    console.log('File upload triggered, files:', files);
+    if (!files || files.length === 0) {
+      console.log('No files selected');
+      return;
+    }
+    
     const newFiles = [];
+    const skippedFiles = [];
+    
     for (const file of files) {
-      const content = await file.text();
-      if (!selectedFiles.some(f => f.name === file.name && f.size === file.size)) {
+      console.log('Processing file:', file.name, 'size:', file.size, 'type:', file.type);
+      
+      // Check if file already exists
+      if (selectedFiles.some(f => f.name === file.name && f.size === file.size)) {
+        console.log('File already selected:', file.name);
+        skippedFiles.push(file.name + ' (already selected)');
+        continue;
+      }
+      
+      try {
+        const content = await file.text();
         newFiles.push({ name: file.name, content, size: file.size });
+        console.log('Successfully added file:', file.name, 'content length:', content.length);
+      } catch (error) {
+        console.error('Error reading file:', file.name, error);
+        skippedFiles.push(file.name + ' (read error)');
       }
     }
-    if (newFiles.length) {
+    
+    console.log('Files processed - New:', newFiles.length, 'Skipped:', skippedFiles.length);
+    
+    if (newFiles.length > 0) {
       setSelectedFiles(prev => {
         const updated = [...prev, ...newFiles];
-        setCodeInput(updated.map(f => `File: ${f.name}`).join('\n'));
+        console.log('Updated selectedFiles state:', updated);
+        // Only update textarea if it's currently showing file list or is empty
+        if (!codeInput.trim() || codeInput.startsWith('File:')) {
+          setCodeInput(updated.map(f => `File: ${f.name}`).join('\n'));
+        }
         return updated;
       });
     }
+    
+    if (skippedFiles.length > 0) {
+      console.warn('Skipped files:', skippedFiles);
+    }
+    
+    if (newFiles.length === 0 && skippedFiles.length > 0) {
+      alert('No new files were added:\n' + skippedFiles.join('\n'));
+    }
+    
     e.target.value = null;
     setShowDropdown(false);
   };
@@ -157,16 +193,66 @@ const CodeReviewApp = () => {
   const handleFeedbackSubmitForReview = async (reviewId, feedback, rejectionReason = null, sectionStates = null) => {
     if (!reviewId || !token) return;
     try {
-      const sectionFeedback = sectionStates ? { ai_review: sectionStates.review, original_code: sectionStates.originalCode, optimized_code: sectionStates.optimizedCode, explanation: sectionStates.explanation, security_analysis: sectionStates.securityAnalysis } : {};
-      await fetch(API_BASE + '/submit-feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ review_id: reviewId, feedback, rejection_reasons: rejectionReason ? [rejectionReason] : [], custom_rejection_reason: null, section_feedback: sectionFeedback }) });
-      const review = reviewList.find(r => r.id === reviewId) || (reviewData && reviewData.id === reviewId ? reviewData : null);
-      if (review) {
-        setPastReviews(prev => [{ ...review, feedback, status: rejectionReason ? 'rejected' : 'reviewed', section_feedback: sectionFeedback }, ...prev]);
-        setReviewList(prev => prev.filter(r => r.id !== reviewId));
+      // Map frontend camelCase to backend snake_case
+      const sectionFeedback = sectionStates ? { 
+        ai_review: sectionStates.review, 
+        original_code: sectionStates.originalCode, 
+        optimized_code: sectionStates.optimizedCode, 
+        explanation: sectionStates.explanation, 
+        security_analysis: sectionStates.securityAnalysis 
+      } : {};
+      
+      const response = await fetch(API_BASE + '/submit-feedback', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, 
+        body: JSON.stringify({ 
+          review_id: reviewId, 
+          feedback, 
+          rejection_reasons: rejectionReason ? [rejectionReason] : [], 
+          custom_rejection_reason: null, 
+          section_feedback: sectionFeedback 
+        }) 
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `Request failed with status code ${response.status}`);
       }
-      setShowThanks(true);
-      setTimeout(() => setShowThanks(false), 3000);
-    } catch (e) { console.error('Feedback error', e); }
+      // Only finalize a review when all available sections have been reviewed
+      const review = reviewList.find(r => r.id === reviewId) || (reviewData && reviewData.id === reviewId ? reviewData : null);
+      if (review && sectionStates) {
+        const codeContent = review.code || review.comment || '';
+        const rawReviewText = review.ai_feedback || review.review || '';
+        const hasContent = (txt) => !!(txt && String(txt).trim().length > 0);
+        const availableSections = {
+          ai_review: hasContent(rawReviewText),
+          original_code: hasContent(codeContent),
+          optimized_code: hasContent(review.optimized_code),
+          explanation: hasContent(review.explanation),
+          security_analysis: hasContent(review.security_issues) || /security\s*check/i.test(rawReviewText)
+        };
+        const allSectionsReviewed = Object.entries(availableSections).every(([key, present]) => {
+          if (!present) return true; // skip sections not present
+          const state = sectionStates[
+            key === 'ai_review' ? 'review' :
+            key === 'original_code' ? 'originalCode' :
+            key === 'optimized_code' ? 'optimizedCode' :
+            key === 'security_analysis' ? 'securityAnalysis' : 'explanation'
+          ];
+          return state === 'accepted' || state === 'rejected';
+        });
+
+        if (allSectionsReviewed) {
+          setPastReviews(prev => [{ ...review, feedback, status: rejectionReason ? 'rejected' : 'reviewed', section_feedback: sectionFeedback }, ...prev]);
+          setReviewList(prev => prev.filter(r => r.id !== reviewId));
+          if (reviewData && reviewData.id === reviewId) setReviewData(null);
+          // Do not show the generic thank-you card here; ReviewCard shows completion CTA
+        }
+      }
+    } catch (e) { 
+      console.error('Feedback error', e); 
+      alert('Failed to submit feedback: ' + e.message);
+    }
   };
 
   const handleSelectReview = async (review) => {
@@ -184,9 +270,64 @@ const CodeReviewApp = () => {
   const submitFeedback = async () => {
     if (!feedbackText.trim() || !token) return;
     try {
-      const resp = await fetch(API_BASE + '/user/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ feedback: feedbackText }) });
-      if (resp.ok) { setFeedbackMessage('Feedback updated – thank you!'); fetchUserPreferences(); } else { setFeedbackMessage('Failed to submit feedback'); }
+      const resp = await fetch(API_BASE + '/feedback/', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ feedback_text: feedbackText }) });
+      if (resp.ok) { 
+        const data = await resp.json();
+        const msg = data?.message || 'Preferences updated – thank you!';
+        const changes = Array.isArray(data?.changes) && data.changes.length ? ` (Changes: ${data.changes.join(', ')})` : '';
+        setFeedbackMessage(msg + changes);
+        await fetchUserPreferences();
+        
+        // Close modal after 2 seconds to show success message
+        setTimeout(() => {
+          setShowFeedbackModal(false);
+          setFeedbackText('');
+          setFeedbackMessage('');
+        }, 2000);
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        setFeedbackMessage(err?.detail ? `Failed: ${err.detail}` : 'Failed to submit feedback');
+      }
     } catch (e) { setFeedbackMessage('Error: ' + e.message); }
+  };
+
+  const handleGitRepoSubmit = async () => {
+    if (!gitRepoUrl.trim()) return;
+    if (!token) {
+      setShowGitModal(false);
+      setShowAuthPrompt(true);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const response = await fetch(API_BASE + '/generate-repo-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          repo_url: gitRepoUrl,
+          branch: gitBranch || 'main',
+          include_patterns: includePatterns.length ? includePatterns : undefined,
+          exclude_patterns: excludePatterns.length ? excludePatterns : undefined,
+          max_files: maxFiles
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setReviewList(data.reviews || [data]);
+        setCurrentReviewIndex(0);
+        setShowGitModal(false);
+        setGitRepoUrl('');
+        setGitBranch('main');
+      } else {
+        const errorData = await response.json();
+        alert('Repository review failed: ' + (errorData.detail || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Git review error:', error);
+      alert('Failed to review repository: ' + error.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -225,7 +366,7 @@ const CodeReviewApp = () => {
         {selectedReview && !showThanks && (
           <div className="space-y-6">
             <button onClick={() => setSelectedReview(null)} className="btn btn-outline">← Back</button>
-            <ReviewCard review={{ ...selectedReview, ai_feedback: selectedReview.review, comment: selectedReview.code || selectedReview.comment }} codeContainerStyles={codeContainerStyles} showActions={false} />
+            <ReviewCard review={{ ...selectedReview, ai_feedback: selectedReview.review, comment: selectedReview.code || selectedReview.comment }} codeContainerStyles={codeContainerStyles} showActions={false} onReviewAnother={handleReviewAnother} />
           </div>
         )}
 
@@ -245,6 +386,60 @@ const CodeReviewApp = () => {
                 <span className="badge-pill">Learns from feedback</span>
               </div>
             </div>
+            
+            {/* Hidden file input kept mounted (outside dropdown) */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              accept=".txt,.py,.js,.ts,.jsx,.tsx,.java,.cpp,.c,.h,.html,.css,.json,.md,.xml,.sql,.go,.rs,.kt,.swift,.php,.rb"
+              onChange={handleFileUpload}
+            />
+            
+            {/* Selected Files Display */}
+            {selectedFiles && selectedFiles.length > 0 && (
+              <div className="mb-4 p-4 card">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-semibold text-white">Selected Files ({selectedFiles.length})</h4>
+                  <button 
+                    onClick={() => { 
+                      console.log('Clearing all files');
+                      setSelectedFiles([]); 
+                      setCodeInput(''); 
+                    }} 
+                    className="text-xs text-red-400 hover:text-red-300 underline"
+                  >
+                    Clear All
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {selectedFiles.map((file, idx) => (
+                    <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-sm">
+                      <span className="text-white">📄</span>
+                      <span className="text-gray-200">{file.name}</span>
+                      <button
+                        onClick={() => {
+                          console.log('Removing file:', file.name);
+                          const updated = selectedFiles.filter((_, i) => i !== idx);
+                          setSelectedFiles(updated);
+                          if (updated.length > 0) {
+                            setCodeInput(updated.map(f => `File: ${f.name}`).join('\n'));
+                          } else {
+                            setCodeInput('');
+                          }
+                        }}
+                        className="text-red-400 hover:text-red-300 ml-1"
+                        title="Remove file"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="input-shell">
               <textarea placeholder="Paste your code for intelligent AI review..." value={codeInput} onChange={e => setCodeInput(e.target.value)} className="input-area" rows={8} />
               <div className="input-toolbar">
@@ -259,7 +454,7 @@ const CodeReviewApp = () => {
             {(reviewData || (reviewList && reviewList.length > 0)) && (
               <div className="space-y-4">
                 {(reviewList && reviewList.length > 0 ? reviewList : (reviewData ? [reviewData] : [])).map((rd, idx) => (
-                  <ReviewCard key={rd.id || idx} review={rd} codeContainerStyles={codeContainerStyles} onAccept={(id, sectionStates) => handleFeedbackSubmitForReview(id, 'positive', null, sectionStates)} onReject={(r, sectionStates) => { setSelectedForRejection({ review: r, sectionStates }); setShowRejectionModal(true); }} />
+                  <ReviewCard key={rd.id || idx} review={rd} codeContainerStyles={codeContainerStyles} onAccept={(id, sectionStates) => handleFeedbackSubmitForReview(id, 'positive', null, sectionStates)} onReject={(r, sectionStates) => { setSelectedForRejection({ review: r, sectionStates }); setShowRejectionModal(true); }} onReviewAnother={handleReviewAnother} />
                 ))}
                 {reviewList.length > 1 && (
                   <div className="flex items-center gap-4 pt-2">
@@ -274,26 +469,99 @@ const CodeReviewApp = () => {
         )}
       </div>
 
-      <RejectionReasonsModal isOpen={showRejectionModal} onClose={() => { setShowRejectionModal(false); setSelectedForRejection(null); }} reviewId={selectedForRejection?.review?.id || selectedForRejection?.id || reviewData?.id} sectionStates={selectedForRejection?.sectionStates} onSubmitSuccess={(response) => { const rid = selectedForRejection?.review?.id || selectedForRejection?.id || reviewData?.id; const sectionFeedback = selectedForRejection?.sectionStates; if (rid) { const review = (reviewList.find(r => r.id === rid) || (reviewData && reviewData.id === rid ? reviewData : null)); if (review) { setPastReviews(prev => [{ ...review, status: response?.status || 'rejected', section_feedback: sectionFeedback }, ...prev]); setReviewList(prev => prev.filter(r => r.id !== rid)); if (reviewData && reviewData.id === rid) setReviewData(null); } } setShowRejectionModal(false); setSelectedForRejection(null); setShowThanks(true); setTimeout(() => setShowThanks(false), 3000); }} />
+      <RejectionReasonsModal
+        isOpen={showRejectionModal}
+        onClose={() => { setShowRejectionModal(false); setSelectedForRejection(null); }}
+        reviewId={selectedForRejection?.review?.id || selectedForRejection?.id || reviewData?.id}
+        sectionStates={selectedForRejection?.sectionStates}
+        onSubmitSuccess={(response) => {
+          const rid = selectedForRejection?.review?.id || selectedForRejection?.id || reviewData?.id;
+          const sectionFeedback = selectedForRejection?.sectionStates;
+          if (rid) {
+            const review = (reviewList.find(r => r.id === rid) || (reviewData && reviewData.id === rid ? reviewData : null));
+            if (review) {
+              // Determine if all sections are reviewed before finalizing
+              const codeContent = review.code || review.comment || '';
+              const rawReviewText = review.ai_feedback || review.review || '';
+              const hasContent = (txt) => !!(txt && String(txt).trim().length > 0);
+              const availableSections = {
+                review: hasContent(rawReviewText),
+                originalCode: hasContent(codeContent),
+                optimizedCode: hasContent(review.optimized_code),
+                explanation: hasContent(review.explanation),
+                securityAnalysis: hasContent(review.security_issues) || /security\s*check/i.test(rawReviewText)
+              };
+              const ss = selectedForRejection?.sectionStates || {};
+              const allSectionsReviewed = Object.entries(availableSections).every(([key, present]) => {
+                if (!present) return true;
+                const state = ss[key];
+                return state === 'accepted' || state === 'rejected';
+              });
+
+              if (allSectionsReviewed) {
+                setPastReviews(prev => [{ ...review, status: response?.status || 'rejected', section_feedback: sectionFeedback }, ...prev]);
+                setReviewList(prev => prev.filter(r => r.id !== rid));
+                if (reviewData && reviewData.id === rid) setReviewData(null);
+              }
+            }
+          }
+          setShowRejectionModal(false);
+          setSelectedForRejection(null);
+          // Do not show global thank-you here; ReviewCard shows completion UI when appropriate
+        }}
+      />
 
       {showGitModal && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-          <div className="card w-full max-w-md">
+          <div className="card w-full max-w-md p-6">
             <h3 className="text-lg font-semibold mb-4">Repository Review</h3>
-            <input value={gitRepoUrl} onChange={e => setGitRepoUrl(e.target.value)} placeholder="https://github.com/user/repo" className="w-full mb-3 px-3 py-2 rounded bg-white/10 border border-white/10 text-white placeholder:text-white/40" />
-            <input value={gitBranch} onChange={e => setGitBranch(e.target.value)} placeholder="main" className="w-full mb-4 px-3 py-2 rounded bg-white/10 border border-white/10 text-white placeholder:text-white/40" />
-            <div className="flex gap-3"><button onClick={() => setShowGitModal(false)} className="btn btn-outline flex-1">Cancel</button><button onClick={() => {/* TODO: implement repo submit */}} className="btn btn-primary flex-1" disabled={!gitRepoUrl.trim()}>Review</button></div>
+            <input value={gitRepoUrl} onChange={e => setGitRepoUrl(e.target.value)} placeholder="https://github.com/user/repo" className="field mb-3" />
+            <input value={gitBranch} onChange={e => setGitBranch(e.target.value)} placeholder="main" className="field mb-4" />
+            <div className="flex gap-3"><button onClick={() => setShowGitModal(false)} className="btn btn-outline flex-1">Cancel</button><button onClick={handleGitRepoSubmit} className="btn btn-primary flex-1" disabled={!gitRepoUrl.trim() || isLoading}>{isLoading ? 'Reviewing...' : 'Review'}</button></div>
           </div>
         </div>
       )}
 
       {showFeedbackModal && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-          <div className="card w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Improve Future Reviews</h3>
-            <textarea value={feedbackText} onChange={e => setFeedbackText(e.target.value)} rows={6} className="w-full mb-3 px-3 py-2 rounded bg-white/10 border border-white/10 text-white placeholder:text-white/40 resize-none" placeholder="Tell us what to focus on..." />
-            {feedbackMessage && <div className="text-sm mb-3 text-accent">{feedbackMessage}</div>}
-            <div className="flex gap-3"><button onClick={() => { setShowFeedbackModal(false); setFeedbackText(''); setFeedbackMessage(''); }} className="btn btn-outline flex-1">Cancel</button><button onClick={submitFeedback} disabled={!feedbackText.trim()} className="btn btn-primary flex-1">Submit</button></div>
+          <div className="card w-full max-w-md p-6">
+            {!isAuthenticated ? (
+              <div className="space-y-4 text-center">
+                <h3 className="text-lg font-semibold">Login Required</h3>
+                <p className="text-sm text-muted">Please login to save your preferences.</p>
+                <div className="flex gap-3">
+                  <button onClick={() => { setShowFeedbackModal(false); setShowLogin(true); }} className="btn btn-primary flex-1">Login</button>
+                  <button onClick={() => setShowFeedbackModal(false)} className="btn btn-outline flex-1">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <h3 className="text-lg font-semibold mb-2">Customize Future Reviews</h3>
+                <p className="text-xs text-muted mb-3">
+                  💡 Tell the AI what to include or skip in your next review:
+                </p>
+                <div className="text-xs mb-3 p-2.5 bg-white/5 rounded space-y-1">
+                  <div className="text-muted">✓ "give optimized code" or "skip optimization"</div>
+                  <div className="text-muted">✓ "focus on security" or "no security analysis"</div>
+                  <div className="text-muted">✓ "brief explanations" or "detailed explanations"</div>
+                  <div className="text-muted">✓ "include best practices" or "no best practices"</div>
+                </div>
+                {userPreferences && (
+                  <div className="text-xs mb-3 p-2.5 bg-blue-500/10 border border-blue-500/30 rounded">
+                    <div className="font-semibold mb-1.5 text-blue-300">Current Settings:</div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-muted">
+                      <div>{userPreferences.code_optimization ? '✅' : '❌'} Optimization</div>
+                      <div>{userPreferences.security_analysis ? '✅' : '❌'} Security</div>
+                      <div>{userPreferences.detailed_explanations ? '✅' : '❌'} Detailed</div>
+                      <div>{userPreferences.best_practices ? '✅' : '❌'} Best Practices</div>
+                    </div>
+                  </div>
+                )}
+                <textarea value={feedbackText} onChange={e => setFeedbackText(e.target.value)} rows={3} className="field mb-3 resize-none" placeholder="e.g., 'give 2 optimized codes' or 'skip security checks'" />
+                {feedbackMessage && <div className="text-sm mb-3 text-green-400 whitespace-pre-wrap font-medium">{feedbackMessage}</div>}
+                <div className="flex gap-3"><button onClick={() => { setShowFeedbackModal(false); setFeedbackText(''); setFeedbackMessage(''); }} className="btn btn-outline flex-1">Cancel</button><button onClick={submitFeedback} disabled={!feedbackText.trim()} className="btn btn-primary flex-1">Submit</button></div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -305,7 +573,6 @@ const CodeReviewApp = () => {
           <div className="menu-separator" />
           <button onClick={() => { setShowFeedbackModal(true); setShowDropdown(false); }} className="menu-item"><span className="w-5 h-5 flex items-center justify-center">💡</span><span>Preferences</span></button>
           <button onClick={() => { fileInputRef.current?.click(); setShowDropdown(false); }} className="menu-item"><Upload className="w-5 h-5" /><span>Upload File</span></button>
-          <input ref={fileInputRef} type="file" multiple className="hidden" accept=".txt,.py,.js,.java,.cpp,.c,.html,.css,.json" onChange={handleFileUpload} />
         </div>
       )}
 

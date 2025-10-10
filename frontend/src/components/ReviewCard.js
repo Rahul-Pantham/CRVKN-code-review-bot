@@ -37,7 +37,7 @@ const formatReviewContent = (raw) => {
   );
 };
 
-const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActions = true }) => {
+const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActions = true, onReviewAnother }) => {
   // State to track acceptance/rejection of each section - MUST be called before any early returns
   const [sectionStates, setSectionStates] = useState({
     review: null, // null, 'accepted', 'rejected'
@@ -50,12 +50,42 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
   if (!review) return null;
 
   const codeContent = review.code || review.comment || '';
+  
+  // Determine which sections are actually present in this review
+  const availableSections = {
+    review: !!(review.ai_feedback || review.review),
+    originalCode: !!codeContent,
+    optimizedCode: !!review.optimized_code,
+    explanation: !!review.explanation,
+    securityAnalysis: !!(review.security_issues || (review.ai_feedback || review.review || '').toLowerCase().includes('security check'))
+  };
+  
+  // Check if all available sections have been reviewed (accepted or rejected)
+  const allSectionsReviewed = Object.keys(availableSections).every(section => {
+    // Skip sections that don't exist in this review
+    if (!availableSections[section]) return true;
+    // Check if this section has been reviewed
+    return sectionStates[section] === 'accepted' || sectionStates[section] === 'rejected';
+  });
 
-  const handleSectionAction = (section, action) => {
+  const handleSectionAction = async (section, action) => {
+    // Update local state first for immediate visual feedback
     setSectionStates(prev => ({
       ...prev,
       [section]: action
     }));
+
+    // Immediately save to backend if onAccept callback is provided
+    if (onAccept && review.id) {
+      const updatedStates = {
+        ...sectionStates,
+        [section]: action
+      };
+      
+      // Call the parent's onAccept with updated section states
+      // This will trigger the API call to save feedback
+      onAccept(review.id, updatedStates);
+    }
   };
 
   // --- Extract an internal "Security Check:" subsection from the main AI review text (if present) ---
@@ -202,40 +232,25 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
           </div>
         )}
 
-        {/* Overall Actions */}
-        {showActions && (
-          <div className="pt-6 divider mt-6">
+        {/* Review Completion - Show when all sections are reviewed */}
+        {allSectionsReviewed && onReviewAnother && (
+          <div className="card p-6 mt-6 text-center bg-gradient-to-r from-green-900/20 to-blue-900/20 border-green-500/30">
             <div className="mb-3">
-              <h4 className="text-sm font-medium text-gray-300 mb-2">Overall Review Decision:</h4>
-              <div className="text-xs text-gray-400">
-                Based on your section-by-section feedback above
-              </div>
+              <span className="text-4xl">✅</span>
             </div>
-            <div className="flex items-start gap-4">
-              <button
-                onClick={() => {
-                  if (onAccept) {
-                    onAccept(review.id, sectionStates);
-                  }
-                }}
-                className="flex-shrink-0 px-4 py-2 bg-[#10a37f] hover:bg-[#0d8c6b] rounded-lg transition-colors text-white font-medium"
-              >
-                ✓ Accept Overall Review
-              </button>
-
-              <button
-                onClick={() => {
-                  if (onReject) {
-                    onReject(review, sectionStates);
-                  }
-                }}
-                className="flex-shrink-0 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-white font-medium"
-              >
-                ✗ Reject Overall Review
-              </button>
-            </div>
+            <h3 className="text-xl font-semibold text-white mb-2">Review Complete!</h3>
+            <p className="text-sm text-gray-300 mb-4">
+              Thank you for providing feedback on all sections.
+            </p>
+            <button
+              onClick={onReviewAnother}
+              className="btn btn-primary px-6 py-3"
+            >
+              Review Another Code
+            </button>
           </div>
         )}
+
       </div>
     </div>
   );

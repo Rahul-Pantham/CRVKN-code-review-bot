@@ -240,7 +240,7 @@ def learn_from_feedback(db, user_id: int, feedback_text: str):
     # Security analysis patterns
     if any(phrase in feedback_lower for phrase in [
         "security analysis not required", "skip security", "no security needed",
-        "security not important", "don't need security analysis"
+        "security not important", "don't need security", "without security", "remove security"
     ]):
         preferences.security_analysis = False
         new_feedback["changes_applied"].append("Disabled security analysis")
@@ -248,7 +248,7 @@ def learn_from_feedback(db, user_id: int, feedback_text: str):
     
     elif any(phrase in feedback_lower for phrase in [
         "need more security", "focus on security", "security is important",
-        "add security analysis", "security analysis required"
+        "add security analysis", "security analysis required", "with security", "include security"
     ]):
         preferences.security_analysis = True
         new_feedback["changes_applied"].append("Enabled security analysis")
@@ -257,7 +257,7 @@ def learn_from_feedback(db, user_id: int, feedback_text: str):
     # Performance analysis patterns
     if any(phrase in feedback_lower for phrase in [
         "performance not needed", "skip performance", "no performance analysis",
-        "performance not important"
+        "performance not important", "without performance", "remove performance"
     ]):
         preferences.performance_analysis = False
         new_feedback["changes_applied"].append("Disabled performance analysis")
@@ -265,38 +265,43 @@ def learn_from_feedback(db, user_id: int, feedback_text: str):
         
     elif any(phrase in feedback_lower for phrase in [
         "focus on performance", "need performance analysis", "performance is important",
-        "more performance suggestions"
+        "more performance suggestions", "with performance", "include performance"
     ]):
         preferences.performance_analysis = True
         new_feedback["changes_applied"].append("Enabled performance analysis")
         changes_made = True
     
-    # Code optimization patterns
+    # Code optimization patterns - Enhanced to catch more variations including numeric references
+    import re
     if any(phrase in feedback_lower for phrase in [
         "no code optimization", "skip optimization", "don't optimize code",
-        "optimization not needed"
+        "optimization not needed", "without optimization", "remove optimization"
     ]):
         preferences.code_optimization = False
         new_feedback["changes_applied"].append("Disabled code optimization")
         changes_made = True
         
     elif any(phrase in feedback_lower for phrase in [
-        "need optimization", "optimize code", "focus on optimization"
-    ]):
+        "need optimization", "optimize code", "focus on optimization", "with optimization",
+        "optimized code", "give optimization", "provide optimization", "show optimization",
+        "include optimization", "add optimization"
+    ]) or re.search(r'(give|provide|show|need|want)\s+\d*\s*optimized\s+codes?', feedback_lower) or re.search(r'\d+\s+optimized\s+codes?', feedback_lower):
         preferences.code_optimization = True
-        new_feedback["changes_applied"].append("Enabled code optimization")
+        new_feedback["changes_applied"].append("Enabled code optimization (will provide optimized versions in future reviews)")
         changes_made = True
     
     # Best practices patterns
     if any(phrase in feedback_lower for phrase in [
-        "no best practices", "skip best practices", "best practices not needed"
+        "no best practices", "skip best practices", "best practices not needed",
+        "without best practices", "remove best practices"
     ]):
         preferences.best_practices = False
         new_feedback["changes_applied"].append("Disabled best practices suggestions")
         changes_made = True
         
     elif any(phrase in feedback_lower for phrase in [
-        "focus on best practices", "need best practices", "more best practices"
+        "focus on best practices", "need best practices", "more best practices",
+        "with best practices", "include best practices"
     ]):
         preferences.best_practices = True
         new_feedback["changes_applied"].append("Enabled best practices suggestions")
@@ -304,14 +309,16 @@ def learn_from_feedback(db, user_id: int, feedback_text: str):
     
     # Explanation detail patterns
     if any(phrase in feedback_lower for phrase in [
-        "too detailed", "brief explanation", "short explanation", "less detail"
+        "too detailed", "brief explanation", "short explanation", "less detail",
+        "concise", "simple explanation", "basic explanation"
     ]):
         preferences.detailed_explanations = False
         new_feedback["changes_applied"].append("Switched to brief explanations")
         changes_made = True
         
     elif any(phrase in feedback_lower for phrase in [
-        "more detailed", "detailed explanation", "explain more", "need more detail"
+        "more detailed", "detailed explanation", "explain more", "need more detail",
+        "comprehensive", "thorough explanation", "in-depth"
     ]):
         preferences.detailed_explanations = True
         new_feedback["changes_applied"].append("Switched to detailed explanations")
@@ -319,22 +326,33 @@ def learn_from_feedback(db, user_id: int, feedback_text: str):
     
     # AST analysis patterns
     if any(phrase in feedback_lower for phrase in [
-        "no ast analysis", "skip ast", "ast not needed"
+        "no ast analysis", "skip ast", "ast not needed", "without ast", "remove ast"
     ]):
         preferences.ast_analysis = False
         new_feedback["changes_applied"].append("Disabled AST analysis")
         changes_made = True
+    elif any(phrase in feedback_lower for phrase in [
+        "enable ast", "with ast", "include ast", "use ast"
+    ]):
+        preferences.ast_analysis = True
+        new_feedback["changes_applied"].append("Enabled AST analysis")
+        changes_made = True
     
-    # Only add feedback if changes were made
+    # Always store feedback for future learning, even if no immediate changes
+    feedback_history.append(new_feedback)
+    preferences.feedback_history = json.dumps(feedback_history[-10:])  # Keep last 10 feedback entries
+    preferences.updated_at = datetime.utcnow()
+    db.commit()
+    
     if changes_made:
-        feedback_history.append(new_feedback)
-        preferences.feedback_history = json.dumps(feedback_history[-10:])  # Keep last 10 feedback entries
-        preferences.updated_at = datetime.utcnow()
-        db.commit()
-        
-        return {"message": "Preferences updated based on feedback", "changes": new_feedback["changes_applied"]}
+        print(f"✅ Preferences updated for user {user_id}:")
+        print(f"   - Code Optimization: {preferences.code_optimization}")
+        print(f"   - Security Analysis: {preferences.security_analysis}")
+        print(f"   - Changes: {new_feedback['changes_applied']}")
+        return {"message": "✅ Preferences updated successfully! They'll apply to your next review.", "changes": new_feedback["changes_applied"]}
     
-    return {"message": "No preference changes detected from feedback", "changes": []}
+    print(f"💡 No preference changes detected for user {user_id}. Feedback: '{feedback_text}'")
+    return {"message": "💡 No preference changes detected. Try: 'give optimized code', 'skip security analysis', 'brief explanations'", "changes": []}
 
 def generate_custom_prompt(preferences: UserPreferences, is_repository_review: bool = False) -> str:
     """Generate a categorized, kid-friendly prompt based on user preferences"""
@@ -889,6 +907,12 @@ Safe ✅ No security problems found.
         else:
             # Get user preferences for customized review
             preferences = get_user_preferences(db, current_user.id)
+            print(f"🔍 User preferences loaded for {current_user.username}:")
+            print(f"   - Code Optimization: {preferences.code_optimization}")
+            print(f"   - Security Analysis: {preferences.security_analysis}")
+            print(f"   - Detailed Explanations: {preferences.detailed_explanations}")
+            print(f"   - Best Practices: {preferences.best_practices}")
+            print(f"   - AST Analysis: {preferences.ast_analysis}")
             
             # Perform AST analysis based on user preference
             detected_language = detect_programming_language(data.code)
@@ -937,12 +961,15 @@ Safe ✅ No security problems found.
             
             # Add simple optimization section if requested
             if preferences.code_optimization:
+                print("✅ Adding OPTIMIZED_CODE section to prompt (preference enabled)")
                 prompt_parts.extend([
                     "###OPTIMIZED_CODE###",
                     "- Fix the code and make it better",
                     "- Add simple comments like '# This makes it faster'",
                     "",
                 ])
+            else:
+                print("⚠️ Skipping OPTIMIZED_CODE section (preference disabled)")
             
             # Simple explanation
             prompt_parts.extend([

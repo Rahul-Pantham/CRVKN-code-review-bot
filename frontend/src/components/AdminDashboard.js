@@ -10,7 +10,7 @@ const AdminDashboard = () => {
   const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
   const [overallStats, setOverallStats] = useState(null);
   const [userStats, setUserStats] = useState([]);
-  const [allReviews, setAllReviews] = useState([]);
+  const [allReviews, setAllReviews] = useState({ reviews: [], total: 0 });
   const [selectedReview, setSelectedReview] = useState(null);
   const [sectionFeedbackStats, setSectionFeedbackStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -46,12 +46,14 @@ const AdminDashboard = () => {
       const userResponse = await fetch(`${API_BASE}/admin/stats/per-user`, { headers });
       if (!userResponse.ok) throw new Error('Failed to fetch user stats');
       const userData = await userResponse.json();
-      setUserStats(userData.users);
+      console.log('User stats data:', userData);
+      setUserStats(userData.users || []);
 
       // Fetch all reviews
       const reviewsResponse = await fetch(`${API_BASE}/admin/reviews/all?page=${currentPage}`, { headers });
       if (!reviewsResponse.ok) throw new Error('Failed to fetch reviews');
       const reviewsData = await reviewsResponse.json();
+      console.log('Reviews data:', reviewsData);
       setAllReviews(reviewsData);
 
       // Fetch section feedback analytics
@@ -320,14 +322,14 @@ const AdminDashboard = () => {
                 }}
               />
             </div>
-            <div className="mt-4 grid grid-cols-5 gap-4 text-center">
+            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
               {sectionFeedbackStats.chart_data.map((section, index) => {
                 const total = section.accepted + section.rejected;
                 const acceptanceRate = total > 0 ? ((section.accepted / total) * 100).toFixed(1) : '0';
                 return (
-                  <div key={index} className="bg-[#2a2a2a] rounded-lg p-3">
-                    <div className="text-white font-medium text-sm">{section.section}</div>
-                    <div className="text-gray-300 text-xs mt-1">
+                  <div key={index} className="bg-[#2a2a2a] rounded-lg p-4">
+                    <div className="text-white font-semibold text-base mb-1">{section.section}</div>
+                    <div className="text-gray-300 text-sm mt-1">
                       {section.accepted}A / {section.rejected}R
                     </div>
                     <div className={`text-xs mt-1 ${parseFloat(acceptanceRate) >= 70 ? 'text-green-400' : parseFloat(acceptanceRate) >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>
@@ -356,18 +358,26 @@ const AdminDashboard = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-700">
-                {userStats.map((user, index) => (
-                  <tr key={index}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{user.username}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{user.total_reviews}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-green-400">{user.accepted_reviews}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-red-400">{user.rejected_reviews}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-white">{user.acceptance_rate}%</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                      {user.last_activity ? new Date(user.last_activity).toLocaleDateString() : 'Never'}
+                {userStats && userStats.length > 0 ? (
+                  userStats.map((user, index) => (
+                    <tr key={index}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{user.username}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{user.total_reviews}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-green-400">{user.accepted_reviews}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-red-400">{user.rejected_reviews}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-white">{user.acceptance_rate}%</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                        {user.last_activity ? new Date(user.last_activity).toLocaleDateString() : 'Never'}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="6" className="px-6 py-8 text-center text-gray-400">
+                      No user statistics available yet
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
@@ -384,41 +394,47 @@ const AdminDashboard = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">User</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Language</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Rating</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Date</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-700">
-                {allReviews?.reviews?.map((review) => (
-                  <tr key={review.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">#{review.id}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{review.username}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{review.language || 'N/A'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        review.status === 'rejected' ? 'bg-red-100 text-red-800' :
-                        review.feedback === 'positive' ? 'bg-green-100 text-green-800' :
-                        'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {review.status === 'rejected' ? 'Rejected' : 
-                         review.feedback === 'positive' ? 'Accepted' : 'Pending'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{review.rating || 'N/A'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                      {new Date(review.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <button
-                        onClick={() => fetchReviewDetail(review.id)}
-                        className="text-blue-400 hover:text-blue-300 underline"
-                      >
-                        View Details
-                      </button>
+                {allReviews?.reviews && allReviews.reviews.length > 0 ? (
+                  allReviews.reviews.map((review) => (
+                    <tr key={review.id}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">#{review.id}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{review.username}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{review.language || 'N/A'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          review.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                          review.feedback === 'positive' ? 'bg-green-100 text-green-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {review.status === 'rejected' ? 'Rejected' : 
+                           review.feedback === 'positive' ? 'Accepted' : 'Pending'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                        {new Date(review.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button
+                          onClick={() => fetchReviewDetail(review.id)}
+                          className="text-blue-400 hover:text-blue-300 underline"
+                        >
+                          View Details
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="6" className="px-6 py-8 text-center text-gray-400">
+                      No reviews available yet
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>

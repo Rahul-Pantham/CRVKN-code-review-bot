@@ -47,6 +47,7 @@ const CodeReviewApp = () => {
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [userPreferences, setUserPreferences] = useState(null);
   const [showPreferences, setShowPreferences] = useState(false);
+  const [showLearnMoreModal, setShowLearnMoreModal] = useState(false);
 
   const codeTopRef = useRef(null);
 
@@ -193,13 +194,18 @@ const CodeReviewApp = () => {
   const handleFeedbackSubmitForReview = async (reviewId, feedback, rejectionReason = null, sectionStates = null) => {
     if (!reviewId || !token) return;
     try {
-      // Map frontend camelCase to backend snake_case
+      // Map frontend camelCase to backend snake_case (new sections)
       const sectionFeedback = sectionStates ? { 
-        ai_review: sectionStates.review, 
+        code_quality: sectionStates.codeQuality,
+        key_findings: sectionStates.keyFindings,
+        security: sectionStates.security,
+        performance: sectionStates.performance,
+        architecture: sectionStates.architecture,
+        best_practices: sectionStates.bestPractices,
+        recommendations: sectionStates.recommendations,
         original_code: sectionStates.originalCode, 
         optimized_code: sectionStates.optimizedCode, 
-        explanation: sectionStates.explanation, 
-        security_analysis: sectionStates.securityAnalysis 
+        explanation: sectionStates.explanation
       } : {};
       
       const response = await fetch(API_BASE + '/submit-feedback', { 
@@ -224,21 +230,30 @@ const CodeReviewApp = () => {
         const codeContent = review.code || review.comment || '';
         const rawReviewText = review.ai_feedback || review.review || '';
         const hasContent = (txt) => !!(txt && String(txt).trim().length > 0);
-        const availableSections = {
-          ai_review: hasContent(rawReviewText),
-          original_code: hasContent(codeContent),
-          optimized_code: hasContent(review.optimized_code),
-          explanation: hasContent(review.explanation),
-          security_analysis: hasContent(review.security_issues) || /security\s*check/i.test(rawReviewText)
+        
+        // Parse sections to check what's available (same logic as ReviewCard)
+        const parseSectionFromText = (text, marker) => {
+          const regex = new RegExp(`${marker}\\s*\\n([\\s\\S]*?)(?=###[A-Z_]+###|$)`, 'i');
+          const match = text.match(regex);
+          return match ? match[1].trim() : '';
         };
+        
+        const availableSections = {
+          codeQuality: !!parseSectionFromText(rawReviewText, '###CODE_QUALITY###'),
+          keyFindings: !!parseSectionFromText(rawReviewText, '###KEY_FINDINGS###'),
+          security: !!parseSectionFromText(rawReviewText, '###SECURITY###'),
+          performance: !!parseSectionFromText(rawReviewText, '###PERFORMANCE###'),
+          architecture: !!parseSectionFromText(rawReviewText, '###ARCHITECTURE###'),
+          bestPractices: !!parseSectionFromText(rawReviewText, '###BEST_PRACTICES###'),
+          recommendations: !!parseSectionFromText(rawReviewText, '###RECOMMENDATIONS###'),
+          originalCode: hasContent(codeContent),
+          optimizedCode: hasContent(review.optimized_code),
+          explanation: hasContent(review.explanation)
+        };
+        
         const allSectionsReviewed = Object.entries(availableSections).every(([key, present]) => {
           if (!present) return true; // skip sections not present
-          const state = sectionStates[
-            key === 'ai_review' ? 'review' :
-            key === 'original_code' ? 'originalCode' :
-            key === 'optimized_code' ? 'optimizedCode' :
-            key === 'security_analysis' ? 'securityAnalysis' : 'explanation'
-          ];
+          const state = sectionStates[key];
           return state === 'accepted' || state === 'rejected';
         });
 
@@ -359,7 +374,11 @@ const CodeReviewApp = () => {
       )}
 
       <div ref={codeTopRef} className="max-w-6xl mx-auto px-6 pt-28 pb-24 space-y-10">
-        <h1 className="text-4xl font-bold text-white">CRVKN Code Review</h1>
+        <div className="text-center mb-8">
+          <h1 className="text-5xl font-bold text-white">
+            CRVKN <span className="text-3xl font-normal text-gray-300">Code Review Bot</span>
+          </h1>
+        </div>
 
         {showThanks && <div className="card p-8 text-center"><h2 className="text-2xl font-semibold mb-2">Thank you!</h2><p className="text-muted mb-6">Your feedback helps us improve.</p><button onClick={handleReviewAnother} className="btn btn-primary">Review Another Code</button></div>}
 
@@ -373,17 +392,28 @@ const CodeReviewApp = () => {
         {!selectedReview && !showThanks && (
           <div className="space-y-10">
             {/* Intro blurb about the bot */}
-            <div className="blurb">
-              <div className="blurb-title">Meet your AI code reviewer</div>
-              <p className="blurb-text">
-                CRVKN inspects logic, style, and security patterns in your snippets or uploads and returns
-                concise, prioritized suggestions with ready-to-apply fixes.
-              </p>
-              <div className="blurb-badges">
-                <span className="badge-pill">Multi‑file</span>
-                <span className="badge-pill">AST‑aware</span>
-                <span className="badge-pill">Actionable fixes</span>
-                <span className="badge-pill">Learns from feedback</span>
+            <div className="flex gap-4 items-stretch">
+              <div className="blurb flex-1">
+                <div className="blurb-title">Meet your AI code reviewer</div>
+                <p className="blurb-text">
+                  CRVKN inspects logic, style, and security patterns in your snippets or uploads and returns
+                  concise, prioritized suggestions with ready-to-apply fixes.
+                </p>
+                <div className="blurb-badges">
+                  <span className="badge-pill">Multi‑file</span>
+                  <span className="badge-pill">AST‑aware</span>
+                  <span className="badge-pill">Actionable fixes</span>
+                  <span className="badge-pill">Learns from feedback</span>
+                </div>
+              </div>
+              
+              <div className="flex items-center">
+                <button
+                  onClick={() => setShowLearnMoreModal(true)}
+                  className="px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-semibold rounded-lg shadow-lg transition-all duration-200 transform hover:scale-105 whitespace-nowrap"
+                >
+                  Learn More
+                </button>
               </div>
             </div>
             
@@ -566,6 +596,102 @@ const CodeReviewApp = () => {
         </div>
       )}
 
+      {/* Learn More Modal */}
+      {showLearnMoreModal && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="card w-full max-w-2xl p-8 max-h-[90vh] overflow-y-auto">
+            <div className="text-center mb-6">
+              <h2 className="text-4xl font-bold text-white">
+                CRVKN <span className="text-2xl font-normal text-gray-300">Code Review Bot</span>
+              </h2>
+            </div>
+            
+            <div className="space-y-6 text-gray-300">
+              {/* About the Bot */}
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-3">🤖 About CRVKN</h3>
+                <p className="leading-relaxed">
+                  CRVKN is your intelligent code review assistant powered by advanced AI. It analyzes your code for logic errors, 
+                  security vulnerabilities, performance issues, and style improvements. Get instant, actionable feedback with 
+                  optimized code suggestions.
+                </p>
+              </div>
+
+              {/* Features */}
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-3">✨ Key Features</h3>
+                <ul className="space-y-2 list-disc list-inside">
+                  <li><strong className="text-white">Multi-file Support:</strong> Review entire projects or multiple files at once</li>
+                  <li><strong className="text-white">AST-aware Analysis:</strong> Deep understanding of code structure and patterns</li>
+                  <li><strong className="text-white">Actionable Fixes:</strong> Get ready-to-apply code improvements</li>
+                  <li><strong className="text-white">Learns from Feedback:</strong> Adapts to your preferences over time</li>
+                </ul>
+              </div>
+
+              {/* How to Use */}
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-3">📋 How to Use the + Icon</h3>
+                <p className="mb-3">Click the <strong className="text-white">+ (Plus) icon</strong> at the bottom right to access these options:</p>
+                <div className="space-y-3 pl-4">
+                  <div className="p-3 bg-white/5 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Upload className="w-5 h-5 text-blue-400" />
+                      <strong className="text-white">Upload Files</strong>
+                    </div>
+                    <p className="text-sm text-gray-400">
+                      Upload one or multiple code files (supports .py, .js, .java, .cpp, .ts, and more). 
+                      Perfect for reviewing entire projects or modules.
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-white/5 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <GitBranch className="w-5 h-5 text-purple-400" />
+                      <strong className="text-white">Git Repository</strong>
+                    </div>
+                    <p className="text-sm text-gray-400">
+                      Review code directly from a GitHub repository. Enter the repo URL and branch name, 
+                      and CRVKN will analyze the entire codebase.
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-white/5 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xl">💡</span>
+                      <strong className="text-white">Preferences</strong>
+                    </div>
+                    <p className="text-sm text-gray-400">
+                      Customize your review experience. Tell CRVKN what to focus on: optimization, security, 
+                      detailed explanations, best practices, or skip certain sections entirely.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tips */}
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-3">💡 Pro Tips</h3>
+                <ul className="space-y-2 text-sm">
+                  <li>• You can paste code directly into the editor or upload files</li>
+                  <li>• Review sections individually with Accept/Reject buttons for granular feedback</li>
+                  <li>• Login to save your preferences and access review history</li>
+                  <li>• The AI learns from your feedback to provide better reviews over time</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-8 flex justify-end">
+              <button 
+                onClick={() => setShowLearnMoreModal(false)} 
+                className="btn btn-primary px-8"
+              >
+                Got it!
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showDropdown && <div className="fixed inset-0 z-30" onClick={() => setShowDropdown(false)} />}
       {showDropdown && (
         <div className="absolute left-6 top-[140px] z-40 menu p-3 w-64">
@@ -640,3 +766,4 @@ const App = () => (
 export default App;
 
 
+// Individual Reviews

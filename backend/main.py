@@ -109,6 +109,7 @@ class Review(Base):
     feedback = Column(Text, nullable=True)
     rejection_reasons = Column(Text, nullable=True)  # JSON array of selected reasons
     custom_rejection_reason = Column(Text, nullable=True)  # Custom reason if "Other" selected
+    improvement_suggestions = Column(Text, nullable=True)  # User suggestions for improving future reviews
     
     # Status tracking
     status = Column(String(20), default="completed", nullable=False)  # pending, completed, reviewed
@@ -135,12 +136,21 @@ class SectionFeedback(Base):
     review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
-    # Section-specific feedback
+    # Section-specific feedback - OLD (kept for backward compatibility)
     review_section = Column(String(20), nullable=True)  # 'accepted', 'rejected', or null
     original_code_section = Column(String(20), nullable=True)
     optimized_code_section = Column(String(20), nullable=True)
     explanation_section = Column(String(20), nullable=True)
     security_analysis_section = Column(String(20), nullable=True)
+    
+    # NEW Section-specific feedback
+    code_quality_section = Column(String(20), nullable=True)
+    key_findings_section = Column(String(20), nullable=True)
+    security_section = Column(String(20), nullable=True)
+    performance_section = Column(String(20), nullable=True)
+    architecture_section = Column(String(20), nullable=True)
+    best_practices_section = Column(String(20), nullable=True)
+    recommendations_section = Column(String(20), nullable=True)
     
     # Overall feedback context
     overall_feedback = Column(String(20), nullable=True)  # 'positive', 'negative'
@@ -354,54 +364,142 @@ def learn_from_feedback(db, user_id: int, feedback_text: str):
     print(f"💡 No preference changes detected for user {user_id}. Feedback: '{feedback_text}'")
     return {"message": "💡 No preference changes detected. Try: 'give optimized code', 'skip security analysis', 'brief explanations'", "changes": []}
 
-def generate_custom_prompt(preferences: UserPreferences, is_repository_review: bool = False) -> str:
-    """Generate a categorized, kid-friendly prompt based on user preferences"""
+def generate_custom_prompt(preferences: UserPreferences, is_repository_review: bool = False, detailed_mode: bool = False) -> str:
+    """Generate a comprehensive code review prompt based on user preferences"""
     
-    sections = []
-    
-    # Always include categorized review with severity levels
-    sections.append("""###REVIEW###
-🔍 **General Review:**
-- Give 1-2 simple sentences about code quality
-- Use emojis: ✅ (good), ⚠️ (needs improvement), ❌ (problems)
-- Under 40 words
+    if detailed_mode or preferences.detailed_explanations:
+        # Professional, comprehensive multi-level analysis mode
+        analysis_depth = """
+You are an advanced Code Review Engine. Analyze the code across multiple dimensions:
 
-🛡️ **Security Check:**
-- Just say 'Safe ✅' or 'Not Safe ❌' with simple reason
-- Under 20 words
-
-🚨 **Issues Found:**
-- List problems with severity level:
-  • 🟢 LOW: Small issues (like missing comments)
-  • � MEDIUM: Important fixes needed
-  • 🔴 HIGH: Critical problems that break things
-- If no issues: say 'No major issues found! ✅'""")
+1️⃣ **Syntax & Language Rules** - syntax errors, deprecated APIs, formatting issues
+2️⃣ **Logic & Semantics** - logical errors, edge cases, control flow problems
+3️⃣ **Architecture & Design** - SOLID principles, design patterns, modularity
+4️⃣ **Performance** - inefficient loops, memory issues, blocking operations
+5️⃣ **Security** - hardcoded secrets, injection risks, weak crypto, missing validation"""
+        
+        if preferences.best_practices:
+            analysis_depth += "\n6️⃣ **Best Practices** - code standards, naming conventions, documentation"
+        
+        analysis_depth += "\n7️⃣ **Maintainability** - complexity, coupling, scalability, technical debt"
+        
+    else:
+        # Simple, beginner-friendly mode
+        analysis_depth = "You are a friendly code teacher who explains things super simply! 😊"
     
-    # Add sections based on preferences (simplified)
-    if preferences.code_optimization:
-        sections.append("###OPTIMIZED_CODE###\n- Fix the code and add simple comments")
-    
-    sections.append("""###EXPLANATION###
-📚 **What does this code do?**
-- Explain in 1-2 simple sentences
-- Use words a child would understand
-- Under 30 words""")
-    
-    # Build the complete categorized prompt
+    # Build structured output with SEPARATE markers for each subsection (Option 1)
     prompt_parts = [
-        "You are a friendly code teacher who explains things super simply! 😊",
+        analysis_depth,
         "",
-        "Look at this code and give me a SHORT categorized review:",
+        "Analyze this code and return SEPARATE sections with exact markers. Each section will be independently reviewable:",
         "",
-        "Return sections separated by exact markers:",
+        "###CODE_QUALITY###",
+        "📋 **Code Quality Summary:**",
+        "- Overall assessment in 2-3 sentences",
+        "- Quality score: X/10",
+        "- Use emojis: ✅ (good), ⚠️ (needs improvement), ❌ (problems)",
+        "- Keep under 60 words",
+        "",
+        "###KEY_FINDINGS###",
+        "🔍 **Key Findings:**",
+        "List each issue with:",
+        "  • Severity: 🔴 CRITICAL | 🟠 HIGH | 🟡 MEDIUM | 🟢 LOW",
+        "  • Category: Syntax/Logic/Architecture/Performance/Security/Style",
+        "  • Brief description + specific fix",
+        "Group by severity. If no issues: 'No critical issues found! ✅'",
+        "Max 150 words.",
         ""
     ]
     
-    prompt_parts.extend(sections)
+    # Now add conditional sections based on preferences
     
-    # Add context based on review type
+    # Security as SEPARATE section (conditional)
+    if preferences.security_analysis:
+        prompt_parts.extend([
+            "###SECURITY###",
+            "�️ **Security Analysis:**",
+            "- Check: hardcoded secrets, injection risks, validation gaps, auth issues, data exposure",
+            "- List findings with severity (🔴 CRITICAL | 🟠 HIGH | 🟡 MEDIUM | 🟢 LOW)",
+            "- If no concerns: 'No security issues detected ✅'",
+            "- Max 100 words",
+            "",
+        ])
+    
+    # Performance as SEPARATE section (conditional)
+    if preferences.performance_analysis:
+        prompt_parts.extend([
+            "###PERFORMANCE###",
+            "⚡ **Performance Analysis:**",
+            "- Inefficient operations, algorithms, loops",
+            "- Memory management concerns",
+            "- Blocking or expensive operations",
+            "- Optimization opportunities",
+            "- If efficient: 'Performance looks good ✅'",
+            "- Max 100 words",
+            "",
+        ])
+    
+    # Architecture as SEPARATE section (conditional - detailed mode)
+    if detailed_mode:
+        prompt_parts.extend([
+            "###ARCHITECTURE###",
+            "🏗️ **Architecture & Design:**",
+            "- Design pattern usage/violations",
+            "- SOLID principles assessment",
+            "- Modularity, coupling, cohesion",
+            "- Scalability concerns",
+            "- Max 120 words",
+            "",
+        ])
+    
+    # Best practices as SEPARATE section (conditional)
+    if preferences.best_practices:
+        prompt_parts.extend([
+            "###BEST_PRACTICES###",
+            "📖 **Best Practices:**",
+            "- Code standards compliance",
+            "- Naming conventions",
+            "- Documentation quality",
+            "- Error handling patterns",
+            "- If compliant: 'Follows best practices ✅'",
+            "- Max 80 words",
+            "",
+        ])
+    
+    # Optimized code section (if user wants it)
+    if preferences.code_optimization:
+        prompt_parts.extend([
+            "###OPTIMIZED_CODE###",
+            "- Provide refactored/improved version of the code",
+            "- Add inline comments explaining improvements",
+            "- Focus on: performance, readability, maintainability",
+            "- Keep same functionality, just better implementation",
+            ""
+        ])
+    
+    # Explanation section - MUCH SHORTER NOW
+    prompt_parts.extend([
+        "###EXPLANATION###",
+        "📚 **Quick Summary:**",
+        "- What the code does in 1-2 sentences (MAX 40 words total)",
+        "- Keep it concise and clear",
+    ])
+    
+    prompt_parts.append("")
+    
+    # Add priority recommendations as SEPARATE section
+    prompt_parts.extend([
+        "###RECOMMENDATIONS###",
+        "🎯 **Top Priority Actions:**",
+        "- List 2-3 most critical improvements",
+        "- Focus on high-impact changes",
+        "- If code is excellent: 'Code quality is excellent! Minor suggestions: [if any]'",
+        "- Max 80 words",
+    ])
+    
+    # Context note
     if is_repository_review:
-        prompt_parts.append("\nNote: This is from a project - keep it simple and categorized!")
+        prompt_parts.append("\n💡 Note: This is part of a larger project. Focus on integration and consistency.")
     
     return "\n".join(prompt_parts)
 
@@ -930,77 +1028,79 @@ Safe ✅ No security problems found.
             if isinstance(code_for_prompt, str) and len(code_for_prompt) > max_chars:
                 code_for_prompt = code_for_prompt[:max_chars] + "\n# ... (truncated)"
 
-            # Build categorized, kid-friendly prompt for comprehensive review
-            prompt_parts = [
-                "You are a friendly code teacher who explains things super simply! 😊",
-                "",
-                "Look at this code and give me a SHORT review in these categories:",
-                "",
-                f"```{detected_language}",
-                f"{code_for_prompt}",
-                f"```",
-                "",
-                "###REVIEW###",
-                "🔍 **General Review:**",
-                "- Write 1-2 simple sentences about the code quality",
-                "- Use emojis: ✅ (good), ⚠️ (needs improvement), ❌ (problems)",
-                "- Keep it under 40 words",
-                "",
-                "🛡️ **Security Check:**",
-                "- Just say 'Safe ✅' or 'Not Safe ❌' with simple reason",
-                "- Keep it under 20 words",
-                "",
-                "🚨 **Issues Found:**",
-                "- List any problems with severity level:",
-                "  • 🟢 LOW: Small issues (like missing comments)",
-                "  • � MEDIUM: Important fixes needed",
-                "  • 🔴 HIGH: Critical problems that break things",
-                "- If no issues: say 'No major issues found! ✅'",
-                "",
-            ]
+            # Generate custom prompt based on user preferences
+            # Use detailed mode if user has enabled detailed_explanations
+            detailed_mode = preferences.detailed_explanations
+            custom_prompt = generate_custom_prompt(preferences, is_repository_review=False, detailed_mode=detailed_mode)
             
-            # Add simple optimization section if requested
+            # Build complete prompt with code
+            combined_prompt = f"""{custom_prompt}
+
+**Code to Review:**
+```{detected_language}
+{code_for_prompt}
+```
+
+Provide your analysis following the exact section markers (###REVIEW###, ###OPTIMIZED_CODE###, ###EXPLANATION###, etc.)."""
+
             if preferences.code_optimization:
-                print("✅ Adding OPTIMIZED_CODE section to prompt (preference enabled)")
-                prompt_parts.extend([
-                    "###OPTIMIZED_CODE###",
-                    "- Fix the code and make it better",
-                    "- Add simple comments like '# This makes it faster'",
-                    "",
-                ])
+                print("✅ OPTIMIZED_CODE section will be requested in prompt (preference enabled)")
             else:
-                print("⚠️ Skipping OPTIMIZED_CODE section (preference disabled)")
-            
-            # Simple explanation
-            prompt_parts.extend([
-                "###EXPLANATION###",
-                "📚 **What does this code do?**",
-                "- Explain in 1-2 simple sentences",
-                "- Use words a child would understand",
-                "- Keep it under 30 words",
-            ])
-            
-            combined_prompt = "\n".join(prompt_parts)
+                print("⚠️ OPTIMIZED_CODE section will NOT be requested (preference disabled)")
 
             combined_resp = extract_text_from_gemini_response(model.generate_content(combined_prompt))
 
-            # Parse combined response by markers
+            # Parse combined response by markers - NOW WITH SEPARATE SECTIONS
             def parse_section(text, marker):
                 import re
                 pattern = rf"{marker}(.*?)(?=###[A-Z_]+###|$)"
                 m = re.search(pattern, text, re.S)
                 return m.group(1).strip() if m else ''
 
-            review_text = parse_section(combined_resp, '###REVIEW###')
+            # Parse all new sections
+            code_quality = parse_section(combined_resp, '###CODE_QUALITY###')
+            key_findings = parse_section(combined_resp, '###KEY_FINDINGS###')
+            security_issues = parse_section(combined_resp, '###SECURITY###')
+            performance_analysis = parse_section(combined_resp, '###PERFORMANCE###')
+            architecture_analysis = parse_section(combined_resp, '###ARCHITECTURE###')
+            best_practices = parse_section(combined_resp, '###BEST_PRACTICES###')
             optimized_code = parse_section(combined_resp, '###OPTIMIZED_CODE###')
             explanation_text = parse_section(combined_resp, '###EXPLANATION###')
-            security_issues = parse_section(combined_resp, '###SECURITY###')
+            recommendations = parse_section(combined_resp, '###RECOMMENDATIONS###')
+            
+            # Combine all sections into the review text with section markers for frontend parsing
+            review_sections = []
+            
+            if code_quality:
+                review_sections.append(f"###CODE_QUALITY###\n{code_quality}")
+            
+            if key_findings:
+                review_sections.append(f"###KEY_FINDINGS###\n{key_findings}")
+            
+            if security_issues:
+                review_sections.append(f"###SECURITY###\n{security_issues}")
+            
+            if performance_analysis:
+                review_sections.append(f"###PERFORMANCE###\n{performance_analysis}")
+            
+            if architecture_analysis:
+                review_sections.append(f"###ARCHITECTURE###\n{architecture_analysis}")
+            
+            if best_practices:
+                review_sections.append(f"###BEST_PRACTICES###\n{best_practices}")
+            
+            if recommendations:
+                review_sections.append(f"###RECOMMENDATIONS###\n{recommendations}")
+            
+            # Join all sections
+            review_text = "\n\n".join(review_sections)
             
             # Enhance review with AST findings if Gemini response is incomplete
             if not review_text and ast_analysis.issues:
                 review_text = f"AST Analysis findings:\n" + '\n'.join([f"- {issue}" for issue in ast_analysis.issues])
             
             print(f"AST analysis complete. Found {len(ast_analysis.issues)} issues.")
+            print(f"Generated sections: {', '.join([s.split('###')[1] for s in review_sections]) if review_sections else 'None'}")
 
         # Detect programming language and extract rating
         detected_language = detect_programming_language(data.code)
@@ -1076,11 +1176,21 @@ def submit_feedback(data: FeedbackInput, current_user: User = Depends(get_curren
             
             # Map frontend section names to database columns
             section_mapping = {
+                # OLD sections (kept for backward compatibility)
                 'ai_review': 'review_section',
                 'original_code': 'original_code_section', 
                 'optimized_code': 'optimized_code_section',
                 'explanation': 'explanation_section',
-                'security_analysis': 'security_analysis_section'
+                'security_analysis': 'security_analysis_section',
+                
+                # NEW sections
+                'code_quality': 'code_quality_section',
+                'key_findings': 'key_findings_section',
+                'security': 'security_section',
+                'performance': 'performance_section',
+                'architecture': 'architecture_section',
+                'best_practices': 'best_practices_section',
+                'recommendations': 'recommendations_section'
             }
             
             # Check if section feedback already exists for this review
@@ -1122,6 +1232,42 @@ def submit_feedback(data: FeedbackInput, current_user: User = Depends(get_curren
             "custom_reason": data.custom_rejection_reason,
             "section_feedback": data.section_feedback
         }
+    finally:
+        db.close()
+
+@app.post("/submit-improvement-suggestion")
+def submit_improvement_suggestion(data: dict, current_user: User = Depends(get_current_user)):
+    """Submit user improvement suggestions for future reviews"""
+    db = SessionLocal()
+    try:
+        review_id = data.get("review_id")
+        suggestion = data.get("suggestion", "").strip()
+        
+        if not review_id:
+            raise HTTPException(status_code=400, detail="Review ID is required")
+        
+        review = db.query(Review).filter(Review.id == review_id, Review.user_id == current_user.id).first()
+        if not review:
+            raise HTTPException(status_code=404, detail="Review not found")
+        
+        # Store the improvement suggestion
+        review.improvement_suggestions = suggestion if suggestion else None
+        
+        # Also learn from this feedback for future reviews
+        if suggestion:
+            learn_from_feedback(db, current_user.id, suggestion)
+        
+        db.commit()
+        
+        return {
+            "message": "Improvement suggestion saved successfully",
+            "has_suggestion": bool(suggestion)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error saving suggestion: {str(e)}")
     finally:
         db.close()
 
@@ -1270,56 +1416,22 @@ Safe ✅ No security problems found.
                     if isinstance(code_for_prompt, str) and len(code_for_prompt) > max_chars:
                         code_for_prompt = code_for_prompt[:max_chars] + "\n# ... (truncated)"
 
-                    # Build categorized, kid-friendly prompt for repository file review
-                    prompt_parts = [
-                        f"You are a friendly code teacher! 😊 Look at this file from a project and give me a categorized review:",
-                        "",
-                        f"File: {file_path}",
-                        f"```{file_language}",
-                        f"{code_for_prompt}",
-                        f"```",
-                        "",
-                        "###REVIEW###",
-                        f"🔍 **General Review for {file_path}:**",
-                        "- 1-2 simple sentences about code quality",
-                        "- Use ✅ ⚠️ ❌ emojis",
-                        "- Under 40 words",
-                        "",
-                        "🛡️ **Security Check:**",
-                        "- 'Safe ✅' or 'Not Safe ❌' with simple reason",
-                        "- Under 20 words",
-                        "",
-                        "🚨 **Issues Found:**",
-                        "- List problems with severity:",
-                        "  • 🟢 LOW: Small issues",
-                        "  • 🟡 MEDIUM: Important fixes",
-                        "  • � HIGH: Critical problems",
-                        "- If no issues: 'No major issues found! ✅'",
-                        "",
-                    ]
+                    # Generate custom prompt based on user preferences for repository review
+                    detailed_mode = preferences.detailed_explanations
+                    custom_prompt = generate_custom_prompt(preferences, is_repository_review=True, detailed_mode=detailed_mode)
                     
-                    # Add simple sections based on preferences
-                    if preferences.code_optimization:
-                        prompt_parts.extend([
-                            "###OPTIMIZED_CODE###",
-                            "- Fix the code and add simple comments",
-                            "",
-                        ])
-                    
-                    prompt_parts.extend([
-                        "###EXPLANATION###",
-                        f"📚 **What does {file_path} do?**",
-                        "- Explain in 1 simple sentence",
-                        "- Under 25 words",
-                    ])
-                    
-                    if preferences.security_analysis:
-                        prompt_parts.extend([
-                            "###SECURITY###",
-                            f"- Security risk level and specific issues for {file_path}"
-                        ])
-                    
-                    combined_prompt = "\n".join(prompt_parts)
+                    # Build complete prompt with file context
+                    combined_prompt = f"""{custom_prompt}
+
+**Repository File:** {file_path}
+**Language:** {file_language}
+
+**Code to Review:**
+```{file_language}
+{code_for_prompt}
+```
+
+Provide your analysis following the exact section markers (###REVIEW###, ###OPTIMIZED_CODE###, ###EXPLANATION###, etc.)."""
 
                     try:
                         combined_resp = extract_text_from_gemini_response(model.generate_content(combined_prompt))
@@ -1572,53 +1684,45 @@ def get_section_feedback_analytics(current_admin = Depends(get_current_admin)):
     try:
         from sqlalchemy import func, case
         
-        # Query section feedback statistics
+        # Query section feedback statistics - NEW sections only
         section_stats = db.query(
-            # Count accepted and rejected for each section
-            func.sum(case((SectionFeedback.review_section == 'accepted', 1), else_=0)).label('review_accepted'),
-            func.sum(case((SectionFeedback.review_section == 'rejected', 1), else_=0)).label('review_rejected'),
+            # Count accepted and rejected for each NEW section
+            func.sum(case((SectionFeedback.key_findings_section == 'accepted', 1), else_=0)).label('key_findings_accepted'),
+            func.sum(case((SectionFeedback.key_findings_section == 'rejected', 1), else_=0)).label('key_findings_rejected'),
             
-            func.sum(case((SectionFeedback.original_code_section == 'accepted', 1), else_=0)).label('original_code_accepted'),
-            func.sum(case((SectionFeedback.original_code_section == 'rejected', 1), else_=0)).label('original_code_rejected'),
+            func.sum(case((SectionFeedback.architecture_section == 'accepted', 1), else_=0)).label('architecture_accepted'),
+            func.sum(case((SectionFeedback.architecture_section == 'rejected', 1), else_=0)).label('architecture_rejected'),
+            
+            func.sum(case((SectionFeedback.recommendations_section == 'accepted', 1), else_=0)).label('recommendations_accepted'),
+            func.sum(case((SectionFeedback.recommendations_section == 'rejected', 1), else_=0)).label('recommendations_rejected'),
             
             func.sum(case((SectionFeedback.optimized_code_section == 'accepted', 1), else_=0)).label('optimized_code_accepted'),
             func.sum(case((SectionFeedback.optimized_code_section == 'rejected', 1), else_=0)).label('optimized_code_rejected'),
             
-            func.sum(case((SectionFeedback.explanation_section == 'accepted', 1), else_=0)).label('explanation_accepted'),
-            func.sum(case((SectionFeedback.explanation_section == 'rejected', 1), else_=0)).label('explanation_rejected'),
-            
-            func.sum(case((SectionFeedback.security_analysis_section == 'accepted', 1), else_=0)).label('security_analysis_accepted'),
-            func.sum(case((SectionFeedback.security_analysis_section == 'rejected', 1), else_=0)).label('security_analysis_rejected'),
-            
             func.count(SectionFeedback.id).label('total_feedback_records')
         ).first()
         
-        # Format data for bar chart
+        # Format data for bar chart - Only the 4 requested sections
         chart_data = [
             {
-                "section": "AI Review",
-                "accepted": section_stats.review_accepted or 0,
-                "rejected": section_stats.review_rejected or 0
+                "section": "Key Findings",
+                "accepted": section_stats.key_findings_accepted or 0,
+                "rejected": section_stats.key_findings_rejected or 0
             },
             {
-                "section": "Original Code", 
-                "accepted": section_stats.original_code_accepted or 0,
-                "rejected": section_stats.original_code_rejected or 0
+                "section": "Architecture & Design",
+                "accepted": section_stats.architecture_accepted or 0,
+                "rejected": section_stats.architecture_rejected or 0
+            },
+            {
+                "section": "Recommendations",
+                "accepted": section_stats.recommendations_accepted or 0,
+                "rejected": section_stats.recommendations_rejected or 0
             },
             {
                 "section": "Optimized Code",
                 "accepted": section_stats.optimized_code_accepted or 0,
                 "rejected": section_stats.optimized_code_rejected or 0
-            },
-            {
-                "section": "Explanation",
-                "accepted": section_stats.explanation_accepted or 0,
-                "rejected": section_stats.explanation_rejected or 0
-            },
-            {
-                "section": "Security Analysis",
-                "accepted": section_stats.security_analysis_accepted or 0,
-                "rejected": section_stats.security_analysis_rejected or 0
             }
         ]
         

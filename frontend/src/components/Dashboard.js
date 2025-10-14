@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Sidebar from "./Sidebar";
 import { generateReview, fetchReviews } from "../api";
 import RejectionReasonsModal from "./RejectionReasonsModal";
-import { ChevronDownIcon, BoltIcon } from '@heroicons/react/24/outline';
+import { ChevronDownIcon, BoltIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
 
 // Simple id helper (single definition)
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [copied, setCopied] = useState(false);
   const displayRef = useRef(null);
 
   useEffect(() => {
@@ -59,6 +60,12 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCopy = (text) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -129,8 +136,22 @@ export default function Dashboard() {
             </div>
 
             {selected.optimized_code && (
-              <div className="bg-gray-800 p-4 rounded-md border-l-4 border-purple-500">
-                <div className="text-sm font-semibold text-purple-300 mb-2">⚡ Optimized Code</div>
+              <div className="bg-gray-800 p-4 rounded-md border-l-4 border-purple-500 relative">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="text-sm font-semibold text-purple-300">⚡ Optimized Code</div>
+                  <button
+                    onClick={() => handleCopy(selected.optimized_code)}
+                    className="p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-300 relative"
+                    title="Copy to clipboard"
+                  >
+                    <ClipboardDocumentIcon className="w-5 h-5" />
+                    {copied && (
+                      <span className="absolute -top-7 right-0 bg-green-600 text-white text-xs px-2 py-1 rounded">
+                        Copied!
+                      </span>
+                    )}
+                  </button>
+                </div>
                 <pre className="whitespace-pre-wrap text-sm text-gray-300 bg-gray-900 p-3 rounded overflow-x-auto">{selected.optimized_code}</pre>
               </div>
             )}

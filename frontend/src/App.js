@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Upload, GitBranch } from 'lucide-react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { Routes, Route } from 'react-router-dom';
 import Login from './components/login';
 import Register from './components/register';
 import RejectionReasonsModal from './components/RejectionReasonsModal';
@@ -344,6 +344,35 @@ const CodeReviewApp = () => {
       setIsLoading(false);
     }
   };
+
+  // Show auth screens first when user isn't authenticated
+  if (!isAuthenticated) {
+    return (
+      <>
+        {showRegister ? (
+          <Register
+            // Toggle back to Login view when clicking the Login link on Register
+            setShowLogin={(val) => {
+              // when val is true, we want to show Login instead of Register
+              if (val) setShowRegister(false);
+            }}
+            setShowRegister={setShowRegister}
+          />
+        ) : (
+          <Login
+            // Provide auth setters so successful login unlocks the main app
+            setIsAuthenticated={setIsAuthenticated}
+            setUsername={setUsername}
+            setToken={setToken}
+            // Allow switching to Register from Login
+            setShowRegister={setShowRegister}
+            // Provide a no-op close handler so Login behaves like a page (no navigation required)
+            setShowLogin={() => {}}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#343541] relative">
@@ -752,18 +781,16 @@ const CodeReviewApp = () => {
   );
 };
 
-const App = () => (
-  <BrowserRouter>
+export default function App() {
+  return (
     <Routes>
       <Route path="/" element={<CodeReviewApp />} />
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/admin/dashboard" element={<AdminDashboard />} />
       <Route path="*" element={<CodeReviewApp />} />
     </Routes>
-  </BrowserRouter>
-);
-
-export default App;
+  );
+}
 
 
 // Individual Reviews

@@ -291,14 +291,61 @@ def learn_from_feedback(db, user_id: int, feedback_text: str):
         new_feedback["changes_applied"].append("Disabled code optimization")
         changes_made = True
         
+        # Clear optimized code count in learning patterns
+        learning_patterns = {}
+        if preferences.learning_patterns:
+            try:
+                learning_patterns = json.loads(preferences.learning_patterns)
+            except:
+                pass
+        learning_patterns["optimized_code_count"] = 0
+        preferences.learning_patterns = json.dumps(learning_patterns)
+        
     elif any(phrase in feedback_lower for phrase in [
         "need optimization", "optimize code", "focus on optimization", "with optimization",
         "optimized code", "give optimization", "provide optimization", "show optimization",
         "include optimization", "add optimization"
     ]) or re.search(r'(give|provide|show|need|want)\s+\d*\s*optimized\s+codes?', feedback_lower) or re.search(r'\d+\s+optimized\s+codes?', feedback_lower):
         preferences.code_optimization = True
-        new_feedback["changes_applied"].append("Enabled code optimization (will provide optimized versions in future reviews)")
+        
+        # Extract number of optimized codes requested
+        num_codes = 1  # Default to 1
+        
+        # Try to extract number from patterns like "2 optimized codes", "provide 3 optimized versions"
+        number_patterns = [
+            r'(\d+)\s+optimized\s+codes?',
+            r'(give|provide|show|need|want)\s+(\d+)\s+optimized',
+            r'(\d+)\s+optimized\s+(versions?|solutions?|implementations?)',
+            r'(\d+)\s+(different|alternate|alternative)\s+optimized'
+        ]
+        
+        for pattern in number_patterns:
+            match = re.search(pattern, feedback_lower)
+            if match:
+                # Extract the number - it might be in different capture groups
+                groups = match.groups()
+                for group in groups:
+                    if group and group.isdigit():
+                        num_codes = int(group)
+                        break
+                break
+        
+        # Store in learning patterns
+        learning_patterns = {}
+        if preferences.learning_patterns:
+            try:
+                learning_patterns = json.loads(preferences.learning_patterns)
+            except:
+                pass
+        
+        learning_patterns["optimized_code_count"] = num_codes
+        preferences.learning_patterns = json.dumps(learning_patterns)
+        
+        new_feedback["changes_applied"].append(f"Enabled code optimization (will provide {num_codes} optimized version{'s' if num_codes > 1 else ''} in future reviews)")
         changes_made = True
+        
+        print(f"📊 Pattern Learning: Detected request for {num_codes} optimized code version(s)")
+
     
     # Best practices patterns
     if any(phrase in feedback_lower for phrase in [
@@ -364,8 +411,43 @@ def learn_from_feedback(db, user_id: int, feedback_text: str):
     print(f"💡 No preference changes detected for user {user_id}. Feedback: '{feedback_text}'")
     return {"message": "💡 No preference changes detected. Try: 'give optimized code', 'skip security analysis', 'brief explanations'", "changes": []}
 
-def generate_custom_prompt(preferences: UserPreferences, is_repository_review: bool = False, detailed_mode: bool = False) -> str:
-    """Generate a comprehensive code review prompt based on user preferences"""
+def get_latest_improvement_suggestion(db, user_id: int) -> str:
+    """
+    Fetch the latest non-null improvement_suggestions from the user's reviews.
+    Returns the most recent feedback to incorporate into the prompt.
+    """
+    try:
+        latest_review = db.query(Review).filter(
+            Review.user_id == user_id,
+            Review.improvement_suggestions.isnot(None),
+            Review.improvement_suggestions != ""
+        ).order_by(Review.created_at.desc()).first()
+        
+        if latest_review and latest_review.improvement_suggestions:
+            print(f"✅ Found latest improvement suggestion for user {user_id}: '{latest_review.improvement_suggestions[:100]}...'")
+            return latest_review.improvement_suggestions
+        
+        print(f"ℹ️ No improvement suggestions found for user {user_id}")
+        return None
+    except Exception as e:
+        print(f"⚠️ Error fetching improvement suggestions: {e}")
+        return None
+
+def generate_custom_prompt(preferences: UserPreferences, is_repository_review: bool = False, detailed_mode: bool = False, user_feedback: str = None) -> str:
+    """Generate a comprehensive code review prompt based on user preferences and previous feedback"""
+    
+    # Start with user feedback incorporation if available
+    feedback_section = ""
+    if user_feedback:
+        feedback_section = f"""
+📝 **IMPORTANT - User Feedback from Previous Review:**
+The user previously provided this feedback to improve future code reviews:
+"{user_feedback}"
+
+Please incorporate this feedback and adjust your review approach accordingly. Pay special attention to the points mentioned above.
+---
+
+"""
     
     if detailed_mode or preferences.detailed_explanations:
         # Professional, comprehensive multi-level analysis mode
@@ -468,14 +550,35 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
     
     # Optimized code section (if user wants it)
     if preferences.code_optimization:
-        prompt_parts.extend([
-            "###OPTIMIZED_CODE###",
-            "- Provide refactored/improved version of the code",
-            "- Add inline comments explaining improvements",
-            "- Focus on: performance, readability, maintainability",
-            "- Keep same functionality, just better implementation",
-            ""
-        ])
+        # Check if user requested multiple optimized versions
+        num_optimized = 1  # Default
+        if preferences.learning_patterns:
+            try:
+                patterns = json.loads(preferences.learning_patterns)
+                num_optimized = patterns.get("optimized_code_count", 1)
+            except:
+                pass
+        
+        if num_optimized > 1:
+            # Generate multiple optimized code sections
+            for i in range(1, num_optimized + 1):
+                approach = 'performance-optimized' if i == 1 else 'readability-optimized' if i == 2 else f'alternative approach {i}'
+                prompt_parts.extend([
+                    f"###OPTIMIZED_CODE_{i}###",
+                    f"CRITICAL: Provide ONLY the {approach} code. NO explanatory text. NO inline comments. NO docstrings. NO descriptions.",
+                    f"Pure executable code ONLY. Start directly with the code syntax (def, class, function, import, etc.).",
+                    f"Remove ALL comments and explanations. Code should be clean and ready to run as-is.",
+                    ""
+                ])
+        else:
+            # Single optimized code section
+            prompt_parts.extend([
+                "###OPTIMIZED_CODE###",
+                "CRITICAL: Provide ONLY the optimized code. NO explanatory text. NO inline comments. NO docstrings. NO descriptions.",
+                "Pure executable code ONLY. Start directly with the code syntax (def, class, function, import, etc.).",
+                "Remove ALL comments and explanations. Code should be clean and ready to run as-is.",
+                ""
+            ])
     
     # Explanation section - MUCH SHORTER NOW
     prompt_parts.extend([
@@ -501,7 +604,9 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
     if is_repository_review:
         prompt_parts.append("\n💡 Note: This is part of a larger project. Focus on integration and consistency.")
     
-    return "\n".join(prompt_parts)
+    # Combine feedback section with the rest of the prompt
+    final_prompt = feedback_section + "\n".join(prompt_parts)
+    return final_prompt
 
 # ------------------ FastAPI App ------------------
 app = FastAPI()
@@ -1012,6 +1117,13 @@ Safe ✅ No security problems found.
             print(f"   - Best Practices: {preferences.best_practices}")
             print(f"   - AST Analysis: {preferences.ast_analysis}")
             
+            # Fetch latest improvement suggestion to incorporate into prompt
+            latest_feedback = get_latest_improvement_suggestion(db, current_user.id)
+            if latest_feedback:
+                print(f"📝 Incorporating user feedback into review prompt: '{latest_feedback[:80]}...'")
+            else:
+                print(f"ℹ️ No previous feedback to incorporate")
+            
             # Perform AST analysis based on user preference
             detected_language = detect_programming_language(data.code)
             ast_analysis = None
@@ -1031,7 +1143,12 @@ Safe ✅ No security problems found.
             # Generate custom prompt based on user preferences
             # Use detailed mode if user has enabled detailed_explanations
             detailed_mode = preferences.detailed_explanations
-            custom_prompt = generate_custom_prompt(preferences, is_repository_review=False, detailed_mode=detailed_mode)
+            custom_prompt = generate_custom_prompt(
+                preferences, 
+                is_repository_review=False, 
+                detailed_mode=detailed_mode,
+                user_feedback=latest_feedback  # Pass the latest user feedback
+            )
             
             # Build complete prompt with code
             combined_prompt = f"""{custom_prompt}
@@ -1064,7 +1181,27 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
             performance_analysis = parse_section(combined_resp, '###PERFORMANCE###')
             architecture_analysis = parse_section(combined_resp, '###ARCHITECTURE###')
             best_practices = parse_section(combined_resp, '###BEST_PRACTICES###')
+            
+            # Parse optimized code sections (may be multiple)
             optimized_code = parse_section(combined_resp, '###OPTIMIZED_CODE###')
+            optimized_codes = []
+            if optimized_code:
+                optimized_codes.append(optimized_code)
+            
+            # Check for numbered optimized code sections (OPTIMIZED_CODE_1, OPTIMIZED_CODE_2, etc.)
+            for i in range(1, 10):  # Support up to 9 versions
+                opt_code = parse_section(combined_resp, f'###OPTIMIZED_CODE_{i}###')
+                if opt_code:
+                    optimized_codes.append(opt_code)
+            
+            # Combine all optimized codes with separators if multiple
+            # NO extra text - just code separated by horizontal rules
+            if optimized_codes:
+                if len(optimized_codes) > 1:
+                    optimized_code = "\n\n---\n\n".join(optimized_codes)
+                else:
+                    optimized_code = optimized_codes[0]
+            
             explanation_text = parse_section(combined_resp, '###EXPLANATION###')
             recommendations = parse_section(combined_resp, '###RECOMMENDATIONS###')
             
@@ -1381,6 +1518,13 @@ async def generate_repo_review(data: GitRepoInput, current_user: User = Depends(
             # Get user preferences for repository review
             preferences = get_user_preferences(db, current_user.id)
             
+            # Fetch latest improvement suggestion to incorporate into prompt
+            latest_feedback = get_latest_improvement_suggestion(db, current_user.id)
+            if latest_feedback:
+                print(f"📝 Incorporating user feedback into repository review prompt: '{latest_feedback[:80]}...'")
+            else:
+                print(f"ℹ️ No previous feedback to incorporate for repository review")
+            
             # Initialize AST analyzer for repository review (if enabled)
             analyzer = CodeAnalyzer() if preferences.ast_analysis else None
             
@@ -1418,7 +1562,12 @@ Safe ✅ No security problems found.
 
                     # Generate custom prompt based on user preferences for repository review
                     detailed_mode = preferences.detailed_explanations
-                    custom_prompt = generate_custom_prompt(preferences, is_repository_review=True, detailed_mode=detailed_mode)
+                    custom_prompt = generate_custom_prompt(
+                        preferences, 
+                        is_repository_review=True, 
+                        detailed_mode=detailed_mode,
+                        user_feedback=latest_feedback  # Pass the latest user feedback
+                    )
                     
                     # Build complete prompt with file context
                     combined_prompt = f"""{custom_prompt}

@@ -44,21 +44,8 @@ const Login = ({ setIsAuthenticated, setUsername, setShowLogin, setShowRegister,
 
   return (
     <div className="min-h-screen bg-[#343541] flex items-center justify-center p-4">
-      <div className="card w-full max-w-md p-8 relative">
-        {setShowLogin && (
-          <button
-            aria-label="Close"
-            onClick={() => setShowLogin(false)}
-            className="absolute -top-3 -right-3 icon-btn"
-          >
-            &times;
-          </button>
-        )}
-
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-12 h-12 rounded-full flex items-center justify-center brand-badge">
-            <div className="w-5 h-5 border-2 border-white/90 rounded-sm" />
-          </div>
+      <div className="card w-full max-w-md p-8">
+        <div className="mb-6 text-center">
           <span className="text-white text-xl font-semibold tracking-wide">CRVKN</span>
         </div>
 

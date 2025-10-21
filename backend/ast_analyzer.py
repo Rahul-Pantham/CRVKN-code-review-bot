@@ -350,24 +350,140 @@ class JavaScriptASTAnalyzer:
     def analyze(self, code: str) -> ASTAnalysis:
         """Basic JavaScript analysis without external parser"""
         issues = []
-        structure = {'estimated_functions': code.count('function') + code.count('=>')}
+        syntax_errors = []
+        semantic_errors = []
+        security_concerns = []
+        performance_issues = []
         
-        # Basic checks
+        structure = {
+            'estimated_functions': code.count('function') + code.count('=>'),
+            'estimated_classes': code.count('class ')
+        }
+        
+        lines = code.split('\n')
+        
+        # Check for syntax errors (basic patterns)
+        for i, line in enumerate(lines, 1):
+            line_stripped = line.strip()
+            
+            # Skip empty lines and comments
+            if not line_stripped or line_stripped.startswith('//') or line_stripped.startswith('/*'):
+                continue
+            
+            # Check for function declaration syntax
+            if 'function' in line_stripped and '(' in line_stripped:
+                # Extract the part after 'function'
+                func_part = line_stripped[line_stripped.find('function'):]
+                
+                # Count parentheses before the opening brace
+                if '{' in func_part:
+                    before_brace = func_part[:func_part.find('{')]
+                    open_parens = before_brace.count('(')
+                    close_parens = before_brace.count(')')
+                    
+                    if open_parens != close_parens:
+                        syntax_errors.append(f"Line {i}: Unmatched parentheses in function declaration - missing ')' before '{{'")
+                elif line_stripped.endswith('('):
+                    syntax_errors.append(f"Line {i}: Incomplete function declaration - parameters expected")
+            
+            # Check for missing semicolons after statements (simple heuristic)
+            if line_stripped and not line_stripped.endswith((';', '{', '}', ',', ':', '//')):
+                if any(keyword in line_stripped for keyword in ['const ', 'let ', 'var ', 'return ']):
+                    # Check if it looks like a complete statement
+                    if not line_stripped.startswith('if') and not line_stripped.startswith('for') and not line_stripped.startswith('while'):
+                        semantic_errors.append(f"Line {i}: Consider adding semicolon at end of statement")
+            
+            # Check for unclosed braces/brackets/parentheses
+            open_braces = line_stripped.count('{')
+            close_braces = line_stripped.count('}')
+            open_brackets = line_stripped.count('[')
+            close_brackets = line_stripped.count(']')
+            open_parens = line_stripped.count('(')
+            close_parens = line_stripped.count(')')
+            
+            if open_braces > close_braces or open_brackets > close_brackets or open_parens > close_parens:
+                # This might span multiple lines, but flag as potential issue
+                if '{' in line_stripped and '}' not in line_stripped and not any(lines[j].strip().startswith('}') for j in range(i, min(i + 3, len(lines)))):
+                    pass  # Opening brace is OK if closed later
+                elif open_parens > close_parens and '{' not in line_stripped:
+                    syntax_errors.append(f"Line {i}: Unclosed parenthesis '(' detected")
+        
+        # Check for semantic issues
+        
+        # 1. var usage (should use let/const)
         if 'var ' in code:
-            issues.append("Consider using 'let' or 'const' instead of 'var'")
+            semantic_errors.append("Consider using 'let' or 'const' instead of 'var' for better scoping")
         
+        # 2. Loose equality
         if '==' in code and '===' not in code:
-            issues.append("Consider using strict equality (===) instead of loose equality (==)")
+            semantic_errors.append("Consider using strict equality (===) instead of loose equality (==)")
+        
+        # 3. Missing 'use strict'
+        if "'use strict'" not in code and '"use strict"' not in code:
+            semantic_errors.append("Consider adding 'use strict' at the top of your code for better error checking")
+        
+        # 4. console.log in production
+        if 'console.log' in code:
+            semantic_errors.append("Remove console.log statements before production deployment")
+        
+        # 5. Missing error handling
+        if ('fetch(' in code or 'axios.' in code or '.then(' in code) and 'catch' not in code:
+            semantic_errors.append("Missing error handling for async operations (add .catch() or try-catch)")
+        
+        # 6. Unused variables (basic check)
+        var_pattern = r'\b(?:let|const|var)\s+(\w+)'
+        import re
+        declared_vars = set(re.findall(var_pattern, code))
+        used_vars = set()
+        for var in declared_vars:
+            # Simple check: if variable name appears more than once, it's likely used
+            if code.count(var) > 1:
+                used_vars.add(var)
+        
+        unused_vars = declared_vars - used_vars
+        if unused_vars:
+            semantic_errors.append(f"Potentially unused variables: {', '.join(list(unused_vars)[:5])}")
+        
+        # 7. Functions with too many parameters
+        func_pattern = r'function\s+\w+\s*\(([^)]*)\)'
+        import re
+        for match in re.finditer(func_pattern, code):
+            params = match.group(1)
+            if params:
+                param_count = len([p.strip() for p in params.split(',') if p.strip()])
+                if param_count > 5:
+                    func_name = code[match.start():match.end()].split('(')[0].replace('function', '').strip()
+                    semantic_errors.append(f"Function '{func_name}' has too many parameters ({param_count}). Consider using an options object.")
+        
+        # Security concerns
+        if 'eval(' in code:
+            security_concerns.append("Use of eval() is dangerous and should be avoided")
+        
+        if 'innerHTML' in code:
+            security_concerns.append("Using innerHTML can lead to XSS vulnerabilities. Consider using textContent or sanitizing input")
+        
+        if 'document.write' in code:
+            security_concerns.append("document.write() can be dangerous and is considered bad practice")
+        
+        # Performance issues
+        if code.count('for (') > 3:
+            performance_issues.append("Multiple for loops detected. Consider using array methods like map(), filter(), reduce()")
+        
+        if 'innerHTML' in code and ('for ' in code or 'while ' in code):
+            performance_issues.append("Modifying innerHTML inside loops can cause performance issues")
+        
+        # Combine all issues
+        all_issues = syntax_errors + semantic_errors
         
         return ASTAnalysis(
             language='javascript',
             structure=structure,
             complexity={'estimated': 'medium'},
-            issues=issues,
-            metrics={'line_count': len(code.split('\n'))},
-            security_concerns=[],
-            performance_issues=[],
-            best_practices=issues
+            issues=all_issues,
+            metrics={'line_count': len(lines)},
+            security_concerns=security_concerns,
+            performance_issues=performance_issues,
+            best_practices=semantic_errors
         )
 
 class JavaASTAnalyzer:

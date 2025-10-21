@@ -17,6 +17,11 @@ import json
 import subprocess
 import tempfile
 import shutil
+import smtplib
+import secrets
+import random
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from typing import List, Dict
 from ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
 
@@ -52,6 +57,14 @@ SECRET_KEY = os.getenv("SECRET_KEY", str(uuid.uuid4()))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+# Email configuration
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USERNAME = os.getenv("SMTP_USERNAME")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USERNAME)
+BASE_URL = os.getenv("BASE_URL", "http://localhost:3000")
+
 if not GOOGLE_API_KEY:
     print("⚠️ WARNING: GOOGLE_API_KEY not found in environment variables")
 
@@ -73,12 +86,64 @@ class User(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
+    email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
+    is_verified = Column(Boolean, default=False, nullable=False)
+    otp_code = Column(String(6), nullable=True)
+    otp_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationship to reviews
     reviews = relationship("Review", back_populates="user", cascade="all, delete-orphan")
+
+def generate_otp():
+    """Generate a 6-digit OTP"""
+    import random
+    return str(random.randint(100000, 999999))
+
+def send_otp_email(email: str, otp: str):
+    """Send OTP to user's email"""
+    try:
+        if not SMTP_USERNAME or not SMTP_PASSWORD:
+            print(f"⚠️  Email credentials not configured - OTP email not sent")
+            print(f"🔢 DEBUG OTP for {email}: {otp}")
+            print(f"   Use this OTP to complete verification: {otp}")
+            return False
+        
+        msg = MIMEMultipart()
+        msg['From'] = FROM_EMAIL
+        msg['To'] = email
+        msg['Subject'] = "CRVKN - Email Verification Code"
+        
+        body = f"""
+        Welcome to CRVKN Code Review Bot!
+        
+        Your email verification code is: {otp}
+        
+        Please enter this code to complete your registration.
+        This code will expire in 10 minutes.
+        
+        If you didn't create an account, please ignore this email.
+        
+        Best regards,
+        CRVKN Team
+        """
+        
+        msg.attach(MIMEText(body, 'plain'))
+        
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SMTP_USERNAME, SMTP_PASSWORD)
+        text = msg.as_string()
+        server.sendmail(FROM_EMAIL, email, text)
+        server.quit()
+        
+        print(f"OTP email sent to {email}")
+        return True
+    except Exception as e:
+        print(f"Failed to send OTP email: {str(e)}")
+        return False
 
 class Review(Base):
     __tablename__ = "reviews"
@@ -151,6 +216,8 @@ class SectionFeedback(Base):
     architecture_section = Column(String(20), nullable=True)
     best_practices_section = Column(String(20), nullable=True)
     recommendations_section = Column(String(20), nullable=True)
+    syntax_errors_section = Column(String(20), nullable=True)      # NEW: syntax errors feedback
+    semantic_errors_section = Column(String(20), nullable=True)    # NEW: semantic errors feedback
     
     # Overall feedback context
     overall_feedback = Column(String(20), nullable=True)  # 'positive', 'negative'
@@ -598,6 +665,43 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
         "- Focus on high-impact changes",
         "- If code is excellent: 'Code quality is excellent! Minor suggestions: [if any]'",
         "- Max 80 words",
+        "",
+    ])
+    
+    # Add Syntax Errors section (ALWAYS include - critical for error detection)
+    prompt_parts.extend([
+        "###SYNTAX_ERRORS###",
+        "🔴 **Syntax Errors:**",
+        "Analyze the code for ALL syntax errors including:",
+        "- Missing colons, semicolons, brackets, parentheses, quotes",
+        "- Invalid operators or syntax (e.g., ^ instead of ** in Python)",
+        "- Malformed statements or declarations",
+        "- Incorrect indentation (for Python)",
+        "- Incomplete code blocks",
+        "- Invalid keywords or language-specific syntax violations",
+        "Format: List each error as '• [Error description] on line X' or '• [Error description]'",
+        "If NO syntax errors found, respond with EXACTLY: 'No syntax errors detected.'",
+        "Be thorough - check every line carefully!",
+        "",
+    ])
+    
+    # Add Semantic Errors section (ALWAYS include - critical for logic errors)
+    prompt_parts.extend([
+        "###SEMANTIC_ERRORS###",
+        "🟠 **Semantic Errors:**",
+        "Analyze the code for ALL semantic/logic errors including:",
+        "- Undefined variables or functions being used",
+        "- Type mismatches or incorrect data types",
+        "- Function calls with wrong number of arguments",
+        "- Name mismatches (e.g., defining function_name but calling functionname)",
+        "- Unreachable code or dead code paths",
+        "- Logical errors (incorrect conditions, wrong operators)",
+        "- Missing return statements where expected",
+        "- Incorrect scope or variable access issues",
+        "Format: List each error as '• [Error description]'",
+        "If NO semantic errors found, respond with EXACTLY: 'No semantic errors detected.'",
+        "Be thorough - analyze the entire logic flow!",
+        "",
     ])
     
     # Context note
@@ -651,10 +755,19 @@ class FeedbackInput(BaseModel):
 
 class UserCreate(BaseModel):
     username: str
+    email: str
     password: str
+
+class OTPVerify(BaseModel):
+    user_id: int
+    otp_code: str
+
+class ResendOTP(BaseModel):
+    email: str
 
 class UserOut(BaseModel):
     username: str
+    email: str
 
 class GitRepoInput(BaseModel):
     repo_url: str
@@ -855,7 +968,7 @@ def detect_programming_language(code: str) -> str:
         return 'Java'
     elif any(keyword in code_lower for keyword in ['function ', 'const ', 'let ', 'var ', 'console.log', '=>']):
         return 'JavaScript'
-    elif any(keyword in code_lower for keyword in ['def ', 'print(', 'if __name__']) and 'import ' in code_lower:
+    elif any(keyword in code_lower for keyword in ['def ', 'print(', 'if __name__', 'import ', 'from ']):
         return 'Python'
     elif any(keyword in code_lower for keyword in ['#include', 'int main', 'printf']):
         return 'C/C++'
@@ -987,14 +1100,102 @@ def get_rejection_reasons():
 def register(user: UserCreate):
     db = SessionLocal()
     try:
+        # Check if username already exists
         if db.query(User).filter(User.username == user.username).first():
             raise HTTPException(status_code=400, detail="Username already registered")
+        
+        # Check if email already exists
+        if db.query(User).filter(User.email == user.email).first():
+            raise HTTPException(status_code=400, detail="Email already registered")
+        
+        # Basic email validation
+        if "@" not in user.email or "." not in user.email:
+            raise HTTPException(status_code=400, detail="Invalid email format")
+        
+        # Generate OTP and set expiration (10 minutes)
+        otp = generate_otp()
+        otp_expires_at = datetime.utcnow() + timedelta(minutes=10)
+        
+        # Create user (not verified yet)
         hashed_password = get_password_hash(user.password)
-        new_user = User(username=user.username, hashed_password=hashed_password)
+        new_user = User(
+            username=user.username, 
+            email=user.email,
+            hashed_password=hashed_password,
+            otp_code=otp,
+            otp_expires_at=otp_expires_at,
+            is_verified=False
+        )
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
-        return {"message": "User registered successfully"}
+        
+        # Send OTP email
+        email_sent = send_otp_email(user.email, otp)
+        
+        if email_sent:
+            return {"message": "Registration successful! Please check your email for the verification code.", "user_id": new_user.id}
+        else:
+            return {"message": "Registration successful! Email service unavailable - contact admin for verification.", "user_id": new_user.id}
+    finally:
+        db.close()
+
+@app.post("/verify-otp")
+def verify_otp(otp_request: OTPVerify):
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == otp_request.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        if user.is_verified:
+            raise HTTPException(status_code=400, detail="User already verified")
+        
+        if not user.otp_code:
+            raise HTTPException(status_code=400, detail="No OTP found. Please request a new one.")
+        
+        if datetime.utcnow() > user.otp_expires_at:
+            raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
+        
+        if user.otp_code != otp_request.otp_code:
+            raise HTTPException(status_code=400, detail="Invalid OTP code")
+        
+        # Verify user and clear OTP
+        user.is_verified = True
+        user.otp_code = None
+        user.otp_expires_at = None
+        db.commit()
+        
+        return {"message": "Email verified successfully! You can now login."}
+    finally:
+        db.close()
+
+@app.post("/resend-otp")
+def resend_otp(resend_request: ResendOTP):
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == resend_request.email).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User with this email not found")
+        
+        if user.is_verified:
+            raise HTTPException(status_code=400, detail="User already verified")
+        
+        # Generate new OTP
+        otp = generate_otp()
+        otp_expires_at = datetime.utcnow() + timedelta(minutes=10)
+        
+        user.otp_code = otp
+        user.otp_expires_at = otp_expires_at
+        db.commit()
+        
+        # Send OTP email
+        email_sent = send_otp_email(user.email, otp)
+        
+        if email_sent:
+            return {"message": "New verification code sent to your email."}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send verification email")
     finally:
         db.close()
 
@@ -1005,6 +1206,10 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         user = db.query(User).filter(User.username == form_data.username).first()
         if not user or not verify_password(form_data.password, user.hashed_password):
             raise HTTPException(status_code=401, detail="Incorrect username or password")
+        
+        if not user.is_verified:
+            raise HTTPException(status_code=403, detail="Please verify your email before logging in")
+        
         access_token = create_access_token(data={"sub": user.username})
         return {"access_token": access_token, "token_type": "bearer"}
     finally:
@@ -1124,14 +1329,14 @@ Safe ✅ No security problems found.
             else:
                 print(f"ℹ️ No previous feedback to incorporate")
             
-            # Perform AST analysis based on user preference
+            # Perform AST analysis (always needed for syntax/semantic error detection)
             detected_language = detect_programming_language(data.code)
-            ast_analysis = None
-            ast_summary = ""
+            print(f"Performing AST analysis for code review and error detection...")
+            ast_analysis = analyzer.analyze_code(data.code, detected_language)
             
+            # Format AST summary for Gemini if user preference is enabled
+            ast_summary = ""
             if preferences.ast_analysis:
-                print(f"Performing AST analysis for code review...")
-                ast_analysis = analyzer.analyze_code(data.code, detected_language)
                 ast_summary = format_ast_analysis_for_gemini(ast_analysis)
             
             # Truncate long code submissions to limit model input size and latency
@@ -1181,6 +1386,74 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
             performance_analysis = parse_section(combined_resp, '###PERFORMANCE###')
             architecture_analysis = parse_section(combined_resp, '###ARCHITECTURE###')
             best_practices = parse_section(combined_resp, '###BEST_PRACTICES###')
+
+            # --- Syntax and Semantic Error Extraction ---
+            # Use the ast_analysis already performed earlier
+            syntax_errors = []
+            semantic_errors = []
+            
+            # Debug logging
+            print(f"🔍 AST Analysis Debug:")
+            print(f"  - Language: {detected_language}")
+            print(f"  - AST Analysis exists: {ast_analysis is not None}")
+            if ast_analysis:
+                print(f"  - Structure: {ast_analysis.structure}")
+                print(f"  - Issues: {ast_analysis.issues}")
+                print(f"  - Security concerns: {ast_analysis.security_concerns}")
+            
+            # Extract errors based on language
+            if ast_analysis:
+                # Get syntax errors from structure (for Python)
+                if isinstance(ast_analysis.structure, dict) and 'syntax_error' in ast_analysis.structure:
+                    syntax_errors.append(ast_analysis.structure['syntax_error'])
+                    print(f"✅ Found syntax error in structure: {ast_analysis.structure['syntax_error']}")
+                
+                # Process issues list
+                if ast_analysis.issues:
+                    for issue in ast_analysis.issues:
+                        if issue.lower().startswith('syntax error'):
+                            # It's a syntax error
+                            if issue not in syntax_errors:  # Avoid duplicates
+                                syntax_errors.append(issue)
+                                print(f"✅ Found syntax error in issues: {issue}")
+                        else:
+                            # It's a semantic error
+                            semantic_errors.append(issue)
+                            print(f"✅ Found semantic error: {issue}")
+                
+                # Also check security concerns and performance issues for semantic errors
+                if ast_analysis.security_concerns:
+                    semantic_errors.extend(ast_analysis.security_concerns)
+                    print(f"✅ Added {len(ast_analysis.security_concerns)} security concerns to semantic errors")
+                
+                if ast_analysis.performance_issues:
+                    semantic_errors.extend(ast_analysis.performance_issues)
+                    print(f"✅ Added {len(ast_analysis.performance_issues)} performance issues to semantic errors")
+
+            # Format error sections with better formatting
+            if syntax_errors:
+                syntax_errors_section = '\n'.join([f"• {error}" for error in syntax_errors])
+            else:
+                syntax_errors_section = 'No syntax errors detected.'
+            
+            if semantic_errors:
+                semantic_errors_section = '\n'.join([f"• {error}" for error in semantic_errors])
+            else:
+                semantic_errors_section = 'No semantic errors detected.'
+            
+            print(f"📋 Final Error Sections:")
+            print(f"  - Syntax ({len(syntax_errors)} errors):")
+            if syntax_errors:
+                for err in syntax_errors:
+                    print(f"    • {err}")
+            else:
+                print(f"    {syntax_errors_section}")
+            print(f"  - Semantic ({len(semantic_errors)} errors):")
+            if semantic_errors:
+                for err in semantic_errors:
+                    print(f"    • {err}")
+            else:
+                print(f"    {semantic_errors_section}")
             
             # Parse optimized code sections (may be multiple)
             optimized_code = parse_section(combined_resp, '###OPTIMIZED_CODE###')
@@ -1205,6 +1478,27 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
             explanation_text = parse_section(combined_resp, '###EXPLANATION###')
             recommendations = parse_section(combined_resp, '###RECOMMENDATIONS###')
             
+            # Parse syntax and semantic errors from Gemini's response
+            syntax_errors_from_gemini = parse_section(combined_resp, '###SYNTAX_ERRORS###')
+            semantic_errors_from_gemini = parse_section(combined_resp, '###SEMANTIC_ERRORS###')
+            
+            # Use Gemini's analysis (primary source), fall back to AST if empty
+            if syntax_errors_from_gemini and syntax_errors_from_gemini.strip():
+                syntax_errors_section = syntax_errors_from_gemini.strip()
+            else:
+                # Fallback to AST analysis if Gemini didn't provide
+                syntax_errors_section = syntax_errors_section if syntax_errors else 'No syntax errors detected.'
+            
+            if semantic_errors_from_gemini and semantic_errors_from_gemini.strip():
+                semantic_errors_section = semantic_errors_from_gemini.strip()
+            else:
+                # Fallback to AST analysis if Gemini didn't provide
+                semantic_errors_section = semantic_errors_section if semantic_errors else 'No semantic errors detected.'
+            
+            print(f"🔍 Final Error Sections (from Gemini):")
+            print(f"  - Syntax Errors: {syntax_errors_section[:100]}...")
+            print(f"  - Semantic Errors: {semantic_errors_section[:100]}...")
+            
             # Combine all sections into the review text with section markers for frontend parsing
             review_sections = []
             
@@ -1228,6 +1522,13 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
             
             if recommendations:
                 review_sections.append(f"###RECOMMENDATIONS###\n{recommendations}")
+            
+            # Add syntax and semantic error sections (always, not conditional)
+            review_sections.append(f"###SYNTAX_ERRORS###\n{syntax_errors_section}")
+            review_sections.append(f"###SEMANTIC_ERRORS###\n{semantic_errors_section}")
+            
+            print(f"🔍 Syntax errors found: {len(syntax_errors)}")
+            print(f"🔍 Semantic errors found: {len(semantic_errors)}")
             
             # Join all sections
             review_text = "\n\n".join(review_sections)
@@ -1327,7 +1628,9 @@ def submit_feedback(data: FeedbackInput, current_user: User = Depends(get_curren
                 'performance': 'performance_section',
                 'architecture': 'architecture_section',
                 'best_practices': 'best_practices_section',
-                'recommendations': 'recommendations_section'
+                'recommendations': 'recommendations_section',
+                'syntaxErrors': 'syntax_errors_section',      # NEW: syntax errors mapping
+                'semanticErrors': 'semantic_errors_section'   # NEW: semantic errors mapping
             }
             
             # Check if section feedback already exists for this review
@@ -1848,6 +2151,12 @@ def get_section_feedback_analytics(current_admin = Depends(get_current_admin)):
             func.sum(case((SectionFeedback.optimized_code_section == 'accepted', 1), else_=0)).label('optimized_code_accepted'),
             func.sum(case((SectionFeedback.optimized_code_section == 'rejected', 1), else_=0)).label('optimized_code_rejected'),
             
+            func.sum(case((SectionFeedback.syntax_errors_section == 'accepted', 1), else_=0)).label('syntax_errors_accepted'),
+            func.sum(case((SectionFeedback.syntax_errors_section == 'rejected', 1), else_=0)).label('syntax_errors_rejected'),
+            
+            func.sum(case((SectionFeedback.semantic_errors_section == 'accepted', 1), else_=0)).label('semantic_errors_accepted'),
+            func.sum(case((SectionFeedback.semantic_errors_section == 'rejected', 1), else_=0)).label('semantic_errors_rejected'),
+            
             func.count(SectionFeedback.id).label('total_feedback_records')
         ).first()
         
@@ -1872,6 +2181,16 @@ def get_section_feedback_analytics(current_admin = Depends(get_current_admin)):
                 "section": "Optimized Code",
                 "accepted": section_stats.optimized_code_accepted or 0,
                 "rejected": section_stats.optimized_code_rejected or 0
+            },
+            {
+                "section": "Syntax Errors",
+                "accepted": section_stats.syntax_errors_accepted or 0,
+                "rejected": section_stats.syntax_errors_rejected or 0
+            },
+            {
+                "section": "Semantic Errors",
+                "accepted": section_stats.semantic_errors_accepted or 0,
+                "rejected": section_stats.semantic_errors_rejected or 0
             }
         ]
         

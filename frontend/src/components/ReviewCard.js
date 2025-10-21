@@ -49,7 +49,9 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
     recommendations: null,
     originalCode: null,
     optimizedCode: null,
-    explanation: null
+    explanation: null,
+    syntaxErrors: null,      // NEW: track syntax errors section
+    semanticErrors: null     // NEW: track semantic errors section
   });
 
   // State for improvement suggestion
@@ -69,7 +71,7 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
     return match ? match[1].trim() : '';
   };
   
-  // Extract all new sections
+  // Extract all new sections, including syntax/semantic errors
   const sections = {
     codeQuality: parseSectionFromText(rawReviewText, '###CODE_QUALITY###'),
     keyFindings: parseSectionFromText(rawReviewText, '###KEY_FINDINGS###'),
@@ -77,7 +79,9 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
     performance: parseSectionFromText(rawReviewText, '###PERFORMANCE###'),
     architecture: parseSectionFromText(rawReviewText, '###ARCHITECTURE###'),
     bestPractices: parseSectionFromText(rawReviewText, '###BEST_PRACTICES###'),
-    recommendations: parseSectionFromText(rawReviewText, '###RECOMMENDATIONS###')
+    recommendations: parseSectionFromText(rawReviewText, '###RECOMMENDATIONS###'),
+    syntaxErrors: parseSectionFromText(rawReviewText, '###SYNTAX_ERRORS###'),
+    semanticErrors: parseSectionFromText(rawReviewText, '###SEMANTIC_ERRORS###')
   };
   
   // Determine which sections are actually present in this review
@@ -93,6 +97,8 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
     // originalCode: !!codeContent, // Excluded - no buttons, always visible
     optimizedCode: !!review.optimized_code,
     // explanation: !!review.explanation // Excluded - no buttons, read-only
+    syntaxErrors: !!sections.syntaxErrors,      // NEW: Include syntax errors section with buttons
+    semanticErrors: !!sections.semanticErrors   // NEW: Include semantic errors section with buttons
   };
   
   // Check if all available sections have been reviewed (accepted or rejected)
@@ -253,6 +259,32 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
             </div>
             {formatReviewContent(sections.recommendations)}
             <SectionButtons section="recommendations" />
+          </div>
+        )}
+
+        {/* SYNTAX ERRORS Section - WITH Accept/Reject buttons */}
+        {sections.syntaxErrors && (
+          <div className={`card card-hover p-5 mt-2 ${getSectionBorderClass(sectionStates.syntaxErrors)}`}>
+            <div className={`text-xl md:text-2xl mb-3 font-bold tracking-tight font-sans ${getSectionHeaderClass(sectionStates.syntaxErrors) || 'text-yellow-300'}`}>
+              📝 Syntax Errors
+              {sectionStates.syntaxErrors === 'accepted' && <span className="ml-2 text-lg">✓</span>}
+              {sectionStates.syntaxErrors === 'rejected' && <span className="ml-2 text-lg">✗</span>}
+            </div>
+            {formatReviewContent(sections.syntaxErrors)}
+            <SectionButtons section="syntaxErrors" />
+          </div>
+        )}
+
+        {/* SEMANTIC ERRORS Section - WITH Accept/Reject buttons */}
+        {sections.semanticErrors && (
+          <div className={`card card-hover p-5 mt-2 ${getSectionBorderClass(sectionStates.semanticErrors)}`}>
+            <div className={`text-xl md:text-2xl mb-3 font-bold tracking-tight font-sans ${getSectionHeaderClass(sectionStates.semanticErrors) || 'text-orange-300'}`}>
+              🧠 Semantic Errors
+              {sectionStates.semanticErrors === 'accepted' && <span className="ml-2 text-lg">✓</span>}
+              {sectionStates.semanticErrors === 'rejected' && <span className="ml-2 text-lg">✗</span>}
+            </div>
+            {formatReviewContent(sections.semanticErrors)}
+            <SectionButtons section="semanticErrors" />
           </div>
         )}
 

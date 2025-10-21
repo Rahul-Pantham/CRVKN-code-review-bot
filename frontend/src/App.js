@@ -3,6 +3,7 @@ import { Plus, Upload, GitBranch } from 'lucide-react';
 import { Routes, Route } from 'react-router-dom';
 import Login from './components/login';
 import Register from './components/register';
+import EmailVerification from './components/EmailVerification';
 import RejectionReasonsModal from './components/RejectionReasonsModal';
 import ReviewCard from './components/ReviewCard';
 import AdminLogin from './components/AdminLogin';
@@ -205,7 +206,9 @@ const CodeReviewApp = () => {
         recommendations: sectionStates.recommendations,
         original_code: sectionStates.originalCode, 
         optimized_code: sectionStates.optimizedCode, 
-        explanation: sectionStates.explanation
+        explanation: sectionStates.explanation,
+        syntaxErrors: sectionStates.syntaxErrors,       // NEW: syntax errors
+        semanticErrors: sectionStates.semanticErrors    // NEW: semantic errors
       } : {};
       
       const response = await fetch(API_BASE + '/submit-feedback', { 
@@ -248,7 +251,9 @@ const CodeReviewApp = () => {
           recommendations: !!parseSectionFromText(rawReviewText, '###RECOMMENDATIONS###'),
           originalCode: hasContent(codeContent),
           optimizedCode: hasContent(review.optimized_code),
-          explanation: hasContent(review.explanation)
+          explanation: hasContent(review.explanation),
+          syntaxErrors: !!parseSectionFromText(rawReviewText, '###SYNTAX_ERRORS###'),      // NEW: syntax errors
+          semanticErrors: !!parseSectionFromText(rawReviewText, '###SEMANTIC_ERRORS###')   // NEW: semantic errors
         };
         
         const allSectionsReviewed = Object.entries(availableSections).every(([key, present]) => {
@@ -785,6 +790,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<CodeReviewApp />} />
+      <Route path="/verify-email" element={<EmailVerification />} />
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/admin/dashboard" element={<AdminDashboard />} />
       <Route path="*" element={<CodeReviewApp />} />

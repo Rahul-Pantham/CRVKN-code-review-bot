@@ -136,6 +136,72 @@ const AdminDashboard = () => {
     }]
   };
 
+  // Component to format the AI Review content by parsing the ###HEADINGS###
+  const FormattedAIReview = ({ reviewText }) => {
+    if (!reviewText) {
+        return <p className="text-gray-500">No AI review content available.</p>;
+    }
+
+    const parseReview = (text) => {
+        const sections = [];
+        // Regex to match a section header (e.g., ###CODE_QUALITY###) and its content
+        // Content is non-greedily matched until the next header or the end of the string.
+        const regex = /(###([A-Z_]+)###)([^#]*)/g;
+        let match;
+
+        while ((match = regex.exec(text)) !== null) {
+            const sectionName = match[2];
+            let content = match[3].trim();
+
+            // Create a human-readable title (e.g., CODE_QUALITY -> Code Quality)
+            const displayTitle = sectionName.replace(/_/g, ' ').toLowerCase().split(' ')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(' ');
+
+            // Replace markdown bolding (**...**) with HTML strong tags for styling
+            // This is safer than relying on CSS only for the bolding
+            const htmlContent = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+            sections.push({
+                title: displayTitle,
+                htmlContent: htmlContent
+            });
+        }
+        return sections;
+    };
+
+    const sections = parseReview(reviewText);
+
+    if (sections.length === 0) {
+        // Fallback: If no section markers are found, treat the whole thing as a single block
+        const fallbackContent = reviewText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        return (
+            <div className="text-white whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: fallbackContent }} />
+        );
+    }
+
+    return (
+        <div className="space-y-4">
+            {sections.map((section, index) => (
+                <div key={index}>
+                    {/* Use a clear, prominent heading for the section */}
+                    <h4 className="text-lg font-bold text-blue-400 border-b border-gray-600 pb-1 mb-2">
+                        {section.title}
+                    </h4>
+                    {/* Apply 'pre-wrap' to respect existing line breaks in the LLM output 
+                        and render the bolded content using dangerouslySetInnerHTML */}
+                    <div
+                        className="text-white text-sm"
+                        style={{ whiteSpace: 'pre-wrap' }}
+                        dangerouslySetInnerHTML={{ __html: section.htmlContent }}
+                    />
+                </div>
+            ))}
+        </div>
+    );
+};
+
+
   return (
     <div className="min-h-screen bg-[#343541]">
       {/* Header */}
@@ -486,7 +552,8 @@ const AdminDashboard = () => {
                 <div>
                   <p className="text-gray-400 mb-2">AI Review:</p>
                   <div className="bg-[#40414f] p-4 rounded text-white text-sm">
-                    {selectedReview.review}
+                    {/* Using the new FormattedAIReview component here */}
+                    <FormattedAIReview reviewText={selectedReview.review} />
                   </div>
                 </div>
 

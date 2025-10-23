@@ -75,6 +75,10 @@ BASE_URL = os.getenv("BASE_URL", "http://localhost:3000")
 if not GOOGLE_API_KEY:
     print("⚠️ WARNING: GOOGLE_API_KEY not found in environment variables")
 
+# Debug: Print environment status
+print(f"🔧 Database: {'PostgreSQL' if POSTGRES_URI else 'SQLite (local dev)'}")
+print(f"📧 Email configured: {'Yes' if SMTP_USERNAME else 'No (OTP emails will show in logs)'}")
+
 # ------------------ Database Setup ------------------
 SessionLocal = None
 Base = declarative_base()
@@ -83,7 +87,11 @@ if POSTGRES_URI:
     db_uri = POSTGRES_URI
     engine = create_engine(db_uri, future=True, pool_pre_ping=True)
 else:
-    db_uri = "sqlite:///./dev.db"
+    # Use SQLite for development/fallback (includes Render when POSTGRES_URI not set)
+    # Store in a persistent location if available (Render doesn't have persistent storage by default)
+    db_path = os.path.join(os.path.dirname(__file__), "code_review.db")
+    db_uri = f"sqlite:///{db_path}"
+    print(f"💾 Using SQLite database at: {db_path}")
     engine = create_engine(db_uri, future=True, connect_args={"check_same_thread": False})
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

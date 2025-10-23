@@ -13,7 +13,10 @@ export default API;
 // src/api.js
 import axios from "axios";
 
-const BASE_URL = "http://localhost:8000";
+// ✅ Use relative URL in production, localhost in development
+const BASE_URL = process.env.NODE_ENV === 'production' 
+  ? '' // Use relative URL (same server)
+  : 'http://localhost:8000'; // Development
 
 const API = axios.create({
   baseURL: BASE_URL,

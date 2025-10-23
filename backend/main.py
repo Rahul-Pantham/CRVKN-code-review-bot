@@ -64,6 +64,15 @@ SECRET_KEY = os.getenv("SECRET_KEY", str(uuid.uuid4()))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+# Debug: Show if POSTGRES_URI is set
+if POSTGRES_URI:
+    # Mask the password for security
+    import re
+    masked_uri = re.sub(r':([^:@]+)@', r':****@', POSTGRES_URI)
+    print(f"🔍 POSTGRES_URI is set to: {masked_uri}")
+else:
+    print(f"🔍 POSTGRES_URI is NOT set (will use SQLite)")
+
 # Email configuration
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))

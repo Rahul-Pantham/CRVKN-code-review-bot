@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
+// Dynamic API_BASE: Use relative URL in production (same server), localhost in development
+const API_BASE = process.env.NODE_ENV === 'production' 
+  ? '' // Relative URL - same server
+  : 'http://localhost:8000';
 
 const Register = ({ setShowLogin, setShowRegister, setIsAuthenticated, setUsername: setAppUsername, setToken }) => {
   const [username, setUsername] = useState('');

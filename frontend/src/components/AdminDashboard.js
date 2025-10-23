@@ -7,7 +7,10 @@ import { Pie, Bar } from 'react-chartjs-2';
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
 const AdminDashboard = () => {
-  const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
+  // Dynamic API_BASE: Use relative URL in production (same server), localhost in development
+  const API_BASE = process.env.NODE_ENV === 'production' 
+    ? '' // Relative URL - same server
+    : 'http://localhost:8000';
   const [overallStats, setOverallStats] = useState(null);
   const [userStats, setUserStats] = useState([]);
   const [allReviews, setAllReviews] = useState({ reviews: [], total: 0 });

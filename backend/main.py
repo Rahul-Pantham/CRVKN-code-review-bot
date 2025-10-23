@@ -801,7 +801,12 @@ app.add_middleware(
 
 
 # ------------------ Security Setup ------------------
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use bcrypt with explicit configuration for compatibility
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__rounds=12  # Explicit rounds for bcrypt
+)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # ------------------ Models ------------------

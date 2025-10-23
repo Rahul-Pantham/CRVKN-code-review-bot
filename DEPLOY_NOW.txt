@@ -1,0 +1,67 @@
+================================================================================
+                      IMMEDIATE ACTION REQUIRED
+================================================================================
+
+Your Code Review Bot has 2 new fixes pushed to GitHub that need to be
+deployed on Render to fix the registration error.
+
+LATEST COMMITS (Just pushed):
+================================================================================
+
+d7dcc978 - docs: add bcrypt 5.0.0 compatibility fix documentation
+0bf5960e - fix: upgrade passlib to 1.7.5 for bcrypt compatibility
+          (INCLUDES THE FIX YOU NEED!)
+
+DEPLOYMENT STEPS:
+================================================================================
+
+STEP 1: Open Render Dashboard
+   → https://dashboard.render.com/services
+
+STEP 2: Click on "crvkn-code-review-bot" service
+
+STEP 3: Scroll to the bottom
+
+STEP 4: Click "Manual Deploy" button
+        (Located near the bottom right)
+
+STEP 5: Select "Deploy latest commit" 
+        (This will deploy commit d7dcc978)
+
+STEP 6: Wait 2-3 minutes
+   → Watch for: "Build successful"
+   → Watch for: "Your service is live"
+
+STEP 7: Test Registration
+   → Go to: https://crvkn-code-review-bot.onrender.com
+   → Click "Register"
+   → Try these credentials:
+      Username: testuser
+      Email: test@example.com
+      Password: Test@12345
+
+EXPECTED RESULT:
+================================================================================
+
+✅ Registration form submits successfully
+✅ No bcrypt errors
+✅ Password hashing works
+✅ User account created
+✅ Can now login
+
+
+THE FIX EXPLAINED:
+================================================================================
+
+Problem: passlib 1.7.4 (from 2015) doesn't support bcrypt 5.0.0 (modern)
+Solution: Upgraded to passlib 1.7.5 which supports modern bcrypt versions
+
+Files Changed:
+  • backend/requirements.txt: passlib[bcrypt]==1.7.4 → 1.7.5
+  • backend/main.py: Added explicit bcrypt configuration
+
+This is a CRITICAL fix needed for registration to work on Render.
+
+================================================================================
+Ready? Go deploy now! Just click "Manual Deploy" on Render.
+================================================================================

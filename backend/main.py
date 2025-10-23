@@ -276,7 +276,27 @@ class UserPreferences(Base):
 # Update User model to include preferences relationship
 User.preferences = relationship("UserPreferences", back_populates="user", uselist=False)
 
-Base.metadata.create_all(bind=engine)
+# Don't create tables at import time - let endpoints handle lazy initialization
+# Base.metadata.create_all(bind=engine)
+
+# Create tables on startup if database is available (non-blocking)
+def create_tables():
+    """Try to create tables but don't fail if database is unavailable"""
+    try:
+        # Only attempt to create tables if using SQLite (file-based)
+        # For PostgreSQL, it should already exist or be managed separately
+        if not POSTGRES_URI or "sqlite" in db_uri.lower():
+            Base.metadata.create_all(bind=engine)
+            print("✅ Database tables created/verified")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not create tables on startup: {e}")
+        print("   Tables will be created on first endpoint request if needed")
+
+# Try to create tables but don't fail if it can't (don't block app startup)
+try:
+    create_tables()
+except Exception as e:
+    print(f"⚠️  Startup warning (non-blocking): {e}")
 
 # ------------------ Gemini Setup ------------------
 genai.configure(api_key=GOOGLE_API_KEY)

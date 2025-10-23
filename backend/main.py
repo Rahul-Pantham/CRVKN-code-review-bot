@@ -755,16 +755,25 @@ async def global_exception_handler(request, exc):
     return JSONResponse(status_code=500, content={"error": "Internal server error", "detail": str(exc)})
 
 # ------------------ CORS Middleware ------------------
+# Determine allowed origins based on environment
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "https://crvkn-code-review-bot.onrender.com",
+]
+
+# In production on same server, allow all origins since frontend is served from same domain
+if os.getenv("RENDER"):
+    # On Render, allow requests from any origin since frontend is served from same server
+    allowed_origins = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

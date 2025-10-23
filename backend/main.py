@@ -88,8 +88,11 @@ if POSTGRES_URI:
     engine = create_engine(db_uri, future=True, pool_pre_ping=True)
 else:
     # Use SQLite for development/fallback (includes Render when POSTGRES_URI not set)
-    # Store in a persistent location if available (Render doesn't have persistent storage by default)
-    db_path = os.path.join(os.path.dirname(__file__), "code_review.db")
+    # Store in current directory for easy access
+    db_filename = "code_review.db"
+    db_path = os.path.join(os.path.dirname(__file__), db_filename)
+    # Convert backslashes to forward slashes for SQLite compatibility
+    db_path = db_path.replace("\\", "/")
     db_uri = f"sqlite:///{db_path}"
     print(f"💾 Using SQLite database at: {db_path}")
     engine = create_engine(db_uri, future=True, connect_args={"check_same_thread": False})
@@ -292,14 +295,13 @@ User.preferences = relationship("UserPreferences", back_populates="user", uselis
 def create_tables():
     """Try to create tables but don't fail if database is unavailable"""
     try:
-        # Only attempt to create tables if using SQLite (file-based)
-        # For PostgreSQL, it should already exist or be managed separately
-        if not POSTGRES_URI or "sqlite" in db_uri.lower():
-            Base.metadata.create_all(bind=engine)
-            print("✅ Database tables created/verified")
+        # Create tables for both SQLite and PostgreSQL
+        Base.metadata.create_all(bind=engine)
+        db_type = "PostgreSQL" if POSTGRES_URI else "SQLite"
+        print(f"✅ {db_type} database tables created/verified")
     except Exception as e:
         print(f"⚠️  Warning: Could not create tables on startup: {e}")
-        print("   Tables will be created on first endpoint request if needed")
+        print("   Retrying on first endpoint request...")
 
 # Try to create tables but don't fail if it can't (don't block app startup)
 try:

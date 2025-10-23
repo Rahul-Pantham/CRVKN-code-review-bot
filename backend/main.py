@@ -715,6 +715,12 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
 # ------------------ FastAPI App ------------------
 app = FastAPI()
 
+
+@app.get("/health", tags=["health"])
+def health():
+    """Simple health check for Render and monitoring."""
+    return {"status": "ok"}
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     print("Unhandled Exception:", exc)

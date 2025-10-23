@@ -1,0 +1,4 @@
+# Local env files to ignore
+.env
+.env_sep/
+creds.env

@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: code-review-bot-backend
+    env: python
+    branch: main
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: python backend/migrate_add_otp_fields.py && gunicorn -k uvicorn.workers.UvicornWorker backend.main:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: POSTGRES_URI
+        scope: private
+      - key: SMTP_PASSWORD
+        scope: private

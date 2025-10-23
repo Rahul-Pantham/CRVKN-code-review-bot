@@ -849,20 +849,22 @@ class GitRepoInput(BaseModel):
 # ------------------ Helpers ------------------
 def verify_password(plain_password, hashed_password):
     try:
-        # Truncate password if too long for bcrypt
-        if len(plain_password.encode('utf-8')) > 72:
-            plain_password = plain_password[:72]
-        return pwd_context.verify(plain_password, hashed_password)
+        # Truncate password to 72 bytes max (bcrypt limit)
+        password_bytes = plain_password.encode('utf-8')[:72]
+        password_truncated = password_bytes.decode('utf-8', errors='ignore')
+        return pwd_context.verify(password_truncated, hashed_password)
     except Exception as e:
         print(f"Password verification error: {e}")
         return False
 
 def get_password_hash(password):
     try:
-        # Truncate password if too long for bcrypt
-        if len(password.encode('utf-8')) > 72:
-            password = password[:72]
-        hashed = pwd_context.hash(password)
+        # Truncate password to 72 bytes max (bcrypt limit)
+        # Encode to UTF-8 first, then truncate by bytes, not characters
+        password_bytes = password.encode('utf-8')[:72]
+        password_truncated = password_bytes.decode('utf-8', errors='ignore')
+        
+        hashed = pwd_context.hash(password_truncated)
         if hashed is None:
             print(f"⚠️  Warning: pwd_context.hash returned None for password")
             raise ValueError("Password hashing returned None")
@@ -870,7 +872,7 @@ def get_password_hash(password):
     except Exception as e:
         print(f"🔴 CRITICAL: Password hashing error: {e}")
         print(f"   pwd_context type: {type(pwd_context)}")
-        print(f"   password length: {len(password) if password else 'None'}")
+        print(f"   password length: {len(password) if password else 'None'} chars, {len(password.encode('utf-8')) if password else 0} bytes")
         raise HTTPException(status_code=500, detail=f"Password hashing failed: {str(e)}")
 
 def create_access_token(data: dict):

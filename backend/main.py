@@ -779,34 +779,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ------------------ Serve Frontend ------------------
-import os.path
 
-# Check if frontend build folder exists
-frontend_build = os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
-if os.path.isdir(frontend_build):
-    # Mount static files from React build
-    app.mount("/static", StaticFiles(directory=os.path.join(frontend_build, "static")), name="static")
-    
-    # Serve index.html for root and SPA routes
-    @app.get("/", include_in_schema=False)
-    async def serve_root():
-        return FileResponse(os.path.join(frontend_build, "index.html"))
-    
-    # Catch-all for SPA routes
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
-        # Skip API routes
-        if full_path.startswith("api/") or full_path.startswith("/api/"):
-            return {"error": "Not found"}
-        # For all other routes, serve index.html (SPA routing)
-        index_path = os.path.join(frontend_build, "index.html")
-        if os.path.exists(index_path):
-            return FileResponse(index_path)
-        return {"error": "Frontend not found"}
-else:
-    print("⚠️  Warning: Frontend build folder not found at", frontend_build)
-    print("   To serve frontend, run: cd frontend && npm run build")
 
 # ------------------ Security Setup ------------------
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -2283,6 +2256,33 @@ def get_section_feedback_analytics(current_admin = Depends(get_current_admin)):
         }
     finally:
         db.close()
+
+# ------------------ Serve Frontend (MUST BE LAST) ------------------
+# This must come after all API endpoints to avoid catching API routes
+import os.path
+
+# Check if frontend build folder exists
+frontend_build = os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
+if os.path.isdir(frontend_build):
+    # Mount static files from React build
+    app.mount("/static", StaticFiles(directory=os.path.join(frontend_build, "static")), name="static")
+    
+    # Serve index.html for root
+    @app.get("/", include_in_schema=False)
+    async def serve_root():
+        return FileResponse(os.path.join(frontend_build, "index.html"))
+    
+    # Catch-all for SPA routes (MUST BE LAST ROUTE)
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        # For all routes, serve index.html (SPA routing)
+        index_path = os.path.join(frontend_build, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        return {"error": "Frontend not found"}
+else:
+    print("⚠️  Warning: Frontend build folder not found at", frontend_build)
+    print("   To serve frontend, run: cd frontend && npm run build")
 
 if __name__ == "__main__":
     import uvicorn

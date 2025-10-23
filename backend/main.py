@@ -50,7 +50,13 @@ ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD_HASH = "$2b$12$DlvXYnlNYpbq.zEgdnLhK.rFNNtJC5FzsbvbvIiZKyqnckQKsqLcm"  # "admin123"
 
 # ------------------ Load Environment ------------------
-load_dotenv(os.path.join(os.getcwd(), ".env_sep", "creds.env"))
+# Try to load from local .env_sep first (development), then from system env vars (production/Render)
+try:
+    load_dotenv(os.path.join(os.getcwd(), ".env_sep", "creds.env"))
+except:
+    pass
+load_dotenv()  # Also load from .env in current directory or system environment
+
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 POSTGRES_URI = os.getenv("POSTGRES_URI")
 SECRET_KEY = os.getenv("SECRET_KEY", str(uuid.uuid4()))
@@ -74,7 +80,7 @@ Base = declarative_base()
 
 if POSTGRES_URI:
     db_uri = POSTGRES_URI
-    engine = create_engine(db_uri, future=True)
+    engine = create_engine(db_uri, future=True, pool_pre_ping=True)
 else:
     db_uri = "sqlite:///./dev.db"
     engine = create_engine(db_uri, future=True, connect_args={"check_same_thread": False})

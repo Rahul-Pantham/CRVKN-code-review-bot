@@ -862,10 +862,16 @@ def get_password_hash(password):
         # Truncate password if too long for bcrypt
         if len(password.encode('utf-8')) > 72:
             password = password[:72]
-        return pwd_context.hash(password)
+        hashed = pwd_context.hash(password)
+        if hashed is None:
+            print(f"⚠️  Warning: pwd_context.hash returned None for password")
+            raise ValueError("Password hashing returned None")
+        return hashed
     except Exception as e:
-        print(f"Password hashing error: {e}")
-        return None
+        print(f"🔴 CRITICAL: Password hashing error: {e}")
+        print(f"   pwd_context type: {type(pwd_context)}")
+        print(f"   password length: {len(password) if password else 'None'}")
+        raise HTTPException(status_code=500, detail=f"Password hashing failed: {str(e)}")
 
 def create_access_token(data: dict):
     to_encode = data.copy()

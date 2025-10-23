@@ -1128,10 +1128,6 @@ def get_code_files(repo_path: str, include_patterns: List[str], exclude_patterns
     return code_files
 
 # ------------------ Routes ------------------
-@app.get("/")
-def read_root():
-    return {"message": "✅ CRVKN Code Review API is running"}
-
 @app.get("/rejection-reasons")
 def get_rejection_reasons():
     """Get predefined rejection reasons for code reviews."""

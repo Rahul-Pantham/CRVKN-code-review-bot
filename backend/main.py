@@ -1365,6 +1365,29 @@ def get_current_admin(token: str = Depends(oauth2_scheme)):
         raise credentials_exception
     return {"username": username, "role": role}
 
+
+@app.get("/admin/debug/users")
+def admin_list_users(current_admin: dict = Depends(get_current_admin)):
+    """ADMIN-ONLY DEBUG: return user records (id, username, email, is_verified, otp_code)
+    Use only for debugging OTP/email issues. Protected by admin token.
+    """
+    db = SessionLocal()
+    try:
+        users = db.query(User).all()
+        result = []
+        for u in users:
+            result.append({
+                "id": u.id,
+                "username": u.username,
+                "email": u.email,
+                "is_verified": bool(u.is_verified),
+                "otp_code": u.otp_code,
+                "otp_expires_at": u.otp_expires_at.isoformat() if u.otp_expires_at else None,
+            })
+        return {"users": result}
+    finally:
+        db.close()
+
 @app.post("/generate-review")
 def generate_review(data: CodeInput, current_user: User = Depends(get_current_user)):
     db = SessionLocal()

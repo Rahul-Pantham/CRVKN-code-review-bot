@@ -1187,16 +1187,21 @@ def get_rejection_reasons():
 def register(user: UserCreate):
     db = SessionLocal()
     try:
+        print(f"\n[REGISTER] Attempting registration: username={user.username}, email={user.email}")
+        
         # Check if username already exists
         if db.query(User).filter(User.username == user.username).first():
+            print(f"[REGISTER] Username already exists: {user.username}")
             raise HTTPException(status_code=400, detail="Username already registered")
         
         # Check if email already exists
         if db.query(User).filter(User.email == user.email).first():
+            print(f"[REGISTER] Email already exists: {user.email}")
             raise HTTPException(status_code=400, detail="Email already registered")
         
         # Basic email validation
         if "@" not in user.email or "." not in user.email:
+            print(f"[REGISTER] Invalid email format: {user.email}")
             raise HTTPException(status_code=400, detail="Invalid email format")
         
         # Generate OTP and set expiration (10 minutes)
@@ -1217,6 +1222,8 @@ def register(user: UserCreate):
         db.commit()
         db.refresh(new_user)
         
+        print(f"[REGISTER] User created successfully: id={new_user.id}, username={user.username}, email={user.email}")
+        
         # Send OTP email
         email_sent = send_otp_email(user.email, otp)
         
@@ -1224,6 +1231,11 @@ def register(user: UserCreate):
             return {"message": "Registration successful! Please check your email for the verification code.", "user_id": new_user.id}
         else:
             return {"message": "Registration successful! Email service unavailable - contact admin for verification.", "user_id": new_user.id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[REGISTER] ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Registration error: {str(e)}")
     finally:
         db.close()
 
@@ -1297,15 +1309,29 @@ def resend_otp(resend_request: ResendOTP):
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     db = SessionLocal()
     try:
+        print(f"\n[LOGIN] Login attempt: username={form_data.username}")
         user = db.query(User).filter(User.username == form_data.username).first()
-        if not user or not verify_password(form_data.password, user.hashed_password):
+        if not user:
+            print(f"[LOGIN] User not found: {form_data.username}")
             raise HTTPException(status_code=401, detail="Incorrect username or password")
         
+        if not verify_password(form_data.password, user.hashed_password):
+            print(f"[LOGIN] Password incorrect for user: {form_data.username}")
+            raise HTTPException(status_code=401, detail="Incorrect username or password")
+        
+        print(f"[LOGIN] User found: {form_data.username}, verified={user.is_verified}")
         if not user.is_verified:
+            print(f"[LOGIN] User not verified: {form_data.username}")
             raise HTTPException(status_code=403, detail="Please verify your email before logging in")
         
+        print(f"[LOGIN] Login successful for user: {form_data.username}")
         access_token = create_access_token(data={"sub": user.username})
         return {"access_token": access_token, "token_type": "bearer"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[LOGIN] ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
     finally:
         db.close()
 

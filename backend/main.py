@@ -1388,6 +1388,55 @@ def admin_list_users(current_admin: dict = Depends(get_current_admin)):
     finally:
         db.close()
 
+@app.get("/admin/debug/network")
+def admin_test_smtp_connectivity(current_admin: dict = Depends(get_current_admin)):
+    """ADMIN-ONLY DEBUG: test SMTP connectivity (DNS + TCP connection)
+    Use to diagnose why OTP emails are not being sent.
+    """
+    import socket
+    results = {
+        "smtp_server": SMTP_SERVER,
+        "smtp_port": SMTP_PORT,
+        "tests": {}
+    }
+    
+    # Test 1: DNS resolution
+    try:
+        ip_address = socket.gethostbyname(SMTP_SERVER)
+        results["tests"]["dns_resolution"] = {
+            "status": "success",
+            "message": f"Resolved {SMTP_SERVER} to {ip_address}"
+        }
+    except socket.gaierror as e:
+        results["tests"]["dns_resolution"] = {
+            "status": "failed",
+            "error": f"DNS resolution failed: {str(e)}"
+        }
+        return results  # No point testing connection if DNS fails
+    
+    # Test 2: TCP connection
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect((SMTP_SERVER, SMTP_PORT))
+        sock.close()
+        results["tests"]["tcp_connection"] = {
+            "status": "success",
+            "message": f"Successfully connected to {SMTP_SERVER}:{SMTP_PORT}"
+        }
+    except socket.timeout:
+        results["tests"]["tcp_connection"] = {
+            "status": "failed",
+            "error": f"Connection timed out after 5 seconds"
+        }
+    except socket.error as e:
+        results["tests"]["tcp_connection"] = {
+            "status": "failed",
+            "error": f"Connection failed: {str(e)} (errno {e.errno})"
+        }
+    
+    return results
+
 @app.post("/generate-review")
 def generate_review(data: CodeInput, current_user: User = Depends(get_current_user)):
     db = SessionLocal()

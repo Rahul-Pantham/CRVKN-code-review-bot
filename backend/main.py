@@ -1498,21 +1498,21 @@ def generate_review(data: CodeInput, current_user: User = Depends(get_current_us
         analyzer = CodeAnalyzer()
         
         if not GOOGLE_API_KEY:
-            review_text = """🔍 **General Review:**
-✅ Code looks good! Add some comments to make it easier to read. 😊
+            review_text = """≡ƒöì **General Review:**
+Γ£à Code looks good! Add some comments to make it easier to read. ≡ƒÿè
 
-🛡️ **Security Check:**
-Safe ✅ No security problems found.
+≡ƒ¢í∩╕Å **Security Check:**
+Safe Γ£à No security problems found.
 
-🚨 **Issues Found:**
-🟢 LOW: Missing comments for better readability"""
+≡ƒÜ¿ **Issues Found:**
+≡ƒƒó LOW: Missing comments for better readability"""
             optimized_code = data.code
-            explanation_text = "This code does something cool! 🚀"
+            explanation_text = "This code does something cool! ≡ƒÜÇ"
             security_issues = ""
         else:
             # Get user preferences for customized review
             preferences = get_user_preferences(db, current_user.id)
-            print(f"🔍 User preferences loaded for {current_user.username}:")
+            print(f"≡ƒöì User preferences loaded for {current_user.username}:")
             print(f"   - Code Optimization: {preferences.code_optimization}")
             print(f"   - Security Analysis: {preferences.security_analysis}")
             print(f"   - Detailed Explanations: {preferences.detailed_explanations}")
@@ -1522,9 +1522,9 @@ Safe ✅ No security problems found.
             # Fetch latest improvement suggestion to incorporate into prompt
             latest_feedback = get_latest_improvement_suggestion(db, current_user.id)
             if latest_feedback:
-                print(f"📝 Incorporating user feedback into review prompt: '{latest_feedback[:80]}...'")
+                print(f"≡ƒô¥ Incorporating user feedback into review prompt: '{latest_feedback[:80]}...'")
             else:
-                print(f"ℹ️ No previous feedback to incorporate")
+                print(f"Γä╣∩╕Å No previous feedback to incorporate")
             
             # Perform AST analysis (always needed for syntax/semantic error detection)
             detected_language = detect_programming_language(data.code)
@@ -1563,9 +1563,9 @@ Safe ✅ No security problems found.
 Provide your analysis following the exact section markers (###REVIEW###, ###OPTIMIZED_CODE###, ###EXPLANATION###, etc.)."""
 
             if preferences.code_optimization:
-                print("✅ OPTIMIZED_CODE section will be requested in prompt (preference enabled)")
+                print("Γ£à OPTIMIZED_CODE section will be requested in prompt (preference enabled)")
             else:
-                print("⚠️ OPTIMIZED_CODE section will NOT be requested (preference disabled)")
+                print("ΓÜá∩╕Å OPTIMIZED_CODE section will NOT be requested (preference disabled)")
 
             combined_resp = extract_text_from_gemini_response(model.generate_content(combined_prompt))
 
@@ -1590,7 +1590,7 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
             semantic_errors = []
             
             # Debug logging
-            print(f"🔍 AST Analysis Debug:")
+            print(f"≡ƒöì AST Analysis Debug:")
             print(f"  - Language: {detected_language}")
             print(f"  - AST Analysis exists: {ast_analysis is not None}")
             if ast_analysis:
@@ -1603,7 +1603,7 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
                 # Get syntax errors from structure (for Python)
                 if isinstance(ast_analysis.structure, dict) and 'syntax_error' in ast_analysis.structure:
                     syntax_errors.append(ast_analysis.structure['syntax_error'])
-                    print(f"✅ Found syntax error in structure: {ast_analysis.structure['syntax_error']}")
+                    print(f"Γ£à Found syntax error in structure: {ast_analysis.structure['syntax_error']}")
                 
                 # Process issues list
                 if ast_analysis.issues:
@@ -1612,43 +1612,43 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
                             # It's a syntax error
                             if issue not in syntax_errors:  # Avoid duplicates
                                 syntax_errors.append(issue)
-                                print(f"✅ Found syntax error in issues: {issue}")
+                                print(f"Γ£à Found syntax error in issues: {issue}")
                         else:
                             # It's a semantic error
                             semantic_errors.append(issue)
-                            print(f"✅ Found semantic error: {issue}")
+                            print(f"Γ£à Found semantic error: {issue}")
                 
                 # Also check security concerns and performance issues for semantic errors
                 if ast_analysis.security_concerns:
                     semantic_errors.extend(ast_analysis.security_concerns)
-                    print(f"✅ Added {len(ast_analysis.security_concerns)} security concerns to semantic errors")
+                    print(f"Γ£à Added {len(ast_analysis.security_concerns)} security concerns to semantic errors")
                 
                 if ast_analysis.performance_issues:
                     semantic_errors.extend(ast_analysis.performance_issues)
-                    print(f"✅ Added {len(ast_analysis.performance_issues)} performance issues to semantic errors")
+                    print(f"Γ£à Added {len(ast_analysis.performance_issues)} performance issues to semantic errors")
 
             # Format error sections with better formatting
             if syntax_errors:
-                syntax_errors_section = '\n'.join([f"• {error}" for error in syntax_errors])
+                syntax_errors_section = '\n'.join([f"ΓÇó {error}" for error in syntax_errors])
             else:
                 syntax_errors_section = 'No syntax errors detected.'
             
             if semantic_errors:
-                semantic_errors_section = '\n'.join([f"• {error}" for error in semantic_errors])
+                semantic_errors_section = '\n'.join([f"ΓÇó {error}" for error in semantic_errors])
             else:
                 semantic_errors_section = 'No semantic errors detected.'
             
-            print(f"📋 Final Error Sections:")
+            print(f"≡ƒôï Final Error Sections:")
             print(f"  - Syntax ({len(syntax_errors)} errors):")
             if syntax_errors:
                 for err in syntax_errors:
-                    print(f"    • {err}")
+                    print(f"    ΓÇó {err}")
             else:
                 print(f"    {syntax_errors_section}")
             print(f"  - Semantic ({len(semantic_errors)} errors):")
             if semantic_errors:
                 for err in semantic_errors:
-                    print(f"    • {err}")
+                    print(f"    ΓÇó {err}")
             else:
                 print(f"    {semantic_errors_section}")
             
@@ -1692,7 +1692,7 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
                 # Fallback to AST analysis if Gemini didn't provide
                 semantic_errors_section = semantic_errors_section if semantic_errors else 'No semantic errors detected.'
             
-            print(f"🔍 Final Error Sections (from Gemini):")
+            print(f"≡ƒöì Final Error Sections (from Gemini):")
             print(f"  - Syntax Errors: {syntax_errors_section[:100]}...")
             print(f"  - Semantic Errors: {semantic_errors_section[:100]}...")
             
@@ -1724,8 +1724,8 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
             review_sections.append(f"###SYNTAX_ERRORS###\n{syntax_errors_section}")
             review_sections.append(f"###SEMANTIC_ERRORS###\n{semantic_errors_section}")
             
-            print(f"🔍 Syntax errors found: {len(syntax_errors)}")
-            print(f"🔍 Semantic errors found: {len(semantic_errors)}")
+            print(f"≡ƒöì Syntax errors found: {len(syntax_errors)}")
+            print(f"≡ƒöì Semantic errors found: {len(semantic_errors)}")
             
             # Join all sections
             review_text = "\n\n".join(review_sections)

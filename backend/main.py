@@ -1,3 +1,4 @@
+# FORCE REDEPLOY - 2025-10-24 FIX: Auto-verify users on registration, remove OTP requirement
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware

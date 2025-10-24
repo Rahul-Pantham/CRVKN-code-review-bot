@@ -1204,33 +1204,25 @@ def register(user: UserCreate):
             print(f"[REGISTER] Invalid email format: {user.email}")
             raise HTTPException(status_code=400, detail="Invalid email format")
         
-        # Generate OTP and set expiration (10 minutes)
-        otp = generate_otp()
-        otp_expires_at = datetime.utcnow() + timedelta(minutes=10)
-        
-        # Create user (not verified yet)
+        # Create user (auto-verified - no OTP needed)
         hashed_password = get_password_hash(user.password)
         new_user = User(
             username=user.username, 
             email=user.email,
             hashed_password=hashed_password,
-            otp_code=otp,
-            otp_expires_at=otp_expires_at,
-            is_verified=False
+            is_verified=True  # Auto-verify on registration
         )
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
         
-        print(f"[REGISTER] User created successfully: id={new_user.id}, username={user.username}, email={user.email}")
+        print(f"[REGISTER] User created and auto-verified: id={new_user.id}, username={user.username}, email={user.email}")
         
-        # Send OTP email
-        email_sent = send_otp_email(user.email, otp)
-        
-        if email_sent:
-            return {"message": "Registration successful! Please check your email for the verification code.", "user_id": new_user.id}
-        else:
-            return {"message": "Registration successful! Email service unavailable - contact admin for verification.", "user_id": new_user.id}
+        return {
+            "message": "Registration successful! You can now login with your username and password.",
+            "user_id": new_user.id,
+            "username": new_user.username
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -1319,11 +1311,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             print(f"[LOGIN] Password incorrect for user: {form_data.username}")
             raise HTTPException(status_code=401, detail="Incorrect username or password")
         
-        print(f"[LOGIN] User found: {form_data.username}, verified={user.is_verified}")
-        if not user.is_verified:
-            print(f"[LOGIN] User not verified: {form_data.username}")
-            raise HTTPException(status_code=403, detail="Please verify your email before logging in")
-        
+        # Auto-verified on registration - no need to check is_verified
         print(f"[LOGIN] Login successful for user: {form_data.username}")
         access_token = create_access_token(data={"sub": user.username})
         return {"access_token": access_token, "token_type": "bearer"}

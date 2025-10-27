@@ -24,7 +24,7 @@ import random
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Dict
-from .ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
+from ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
 
 # ------------------ Constants ------------------
 PREDEFINED_REJECTION_REASONS = [
@@ -1978,7 +1978,7 @@ Safe ✅ No security problems found.
 {code_for_prompt}
 ```
 
-Provide your analysis following the exact section markers (###REVIEW###, ###OPTIMIZED_CODE###, ###EXPLANATION###, etc.)."""
+Provide your analysis following the exact section markers (###CODE_QUALITY###, ###KEY_FINDINGS###, ###SECURITY###, ###PERFORMANCE###, ###ARCHITECTURE###, ###BEST_PRACTICES###, ###RECOMMENDATIONS###, ###SYNTAX_ERRORS###, ###SEMANTIC_ERRORS###, ###OPTIMIZED_CODE###, ###EXPLANATION###)."""
 
                     try:
                         combined_resp = extract_text_from_gemini_response(model.generate_content(combined_prompt))
@@ -1990,22 +1990,65 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
                             m = re.search(pattern, text, re.S)
                             return m.group(1).strip() if m else ''
 
-                        review_text = parse_section(combined_resp, '###REVIEW###')
+                        # Parse ALL sections from the response
+                        code_quality = parse_section(combined_resp, '###CODE_QUALITY###')
+                        key_findings = parse_section(combined_resp, '###KEY_FINDINGS###')
+                        security_issues = parse_section(combined_resp, '###SECURITY###')
+                        performance_analysis = parse_section(combined_resp, '###PERFORMANCE###')
+                        architecture_analysis = parse_section(combined_resp, '###ARCHITECTURE###')
+                        best_practices = parse_section(combined_resp, '###BEST_PRACTICES###')
+                        recommendations = parse_section(combined_resp, '###RECOMMENDATIONS###')
+                        syntax_errors_section = parse_section(combined_resp, '###SYNTAX_ERRORS###')
+                        semantic_errors_section = parse_section(combined_resp, '###SEMANTIC_ERRORS###')
                         optimized_code = parse_section(combined_resp, '###OPTIMIZED_CODE###')
                         explanation_text = parse_section(combined_resp, '###EXPLANATION###')
-                        security_issues = parse_section(combined_resp, '###SECURITY###')
+                        
+                        # Combine all sections into review_text with section markers
+                        review_sections = []
+                        
+                        if code_quality:
+                            review_sections.append(f"###CODE_QUALITY###\n{code_quality}")
+                        
+                        if key_findings:
+                            review_sections.append(f"###KEY_FINDINGS###\n{key_findings}")
+                        
+                        if security_issues:
+                            review_sections.append(f"###SECURITY###\n{security_issues}")
+                        
+                        if performance_analysis:
+                            review_sections.append(f"###PERFORMANCE###\n{performance_analysis}")
+                        
+                        if architecture_analysis:
+                            review_sections.append(f"###ARCHITECTURE###\n{architecture_analysis}")
+                        
+                        if best_practices:
+                            review_sections.append(f"###BEST_PRACTICES###\n{best_practices}")
+                        
+                        if recommendations:
+                            review_sections.append(f"###RECOMMENDATIONS###\n{recommendations}")
+                        
+                        # Add syntax and semantic error sections (always)
+                        review_sections.append(f"###SYNTAX_ERRORS###\n{syntax_errors_section}")
+                        review_sections.append(f"###SEMANTIC_ERRORS###\n{semantic_errors_section}")
+                        
+                        # Join all sections
+                        review_text = "\n\n".join(review_sections)
                         
                         # Fallback to AST findings if Gemini response is empty
-                        if not review_text and ast_analysis.issues:
+                        if not review_text and ast_analysis and ast_analysis.issues:
                             review_text = "AST Analysis findings:\n" + '\n'.join([f"- {issue}" for issue in ast_analysis.issues])
                         
                     except Exception as e:
                         print(f"Error processing {file_path}: {e}")
                         # Use AST analysis as fallback
-                        review_text = f"AST Analysis for {file_path}:\n" + '\n'.join([f"- {issue}" for issue in ast_analysis.issues]) if ast_analysis.issues else f"Basic analysis completed for {file_path}"
+                        if ast_analysis and ast_analysis.issues:
+                            review_text = f"AST Analysis for {file_path}:\n" + '\n'.join([f"- {issue}" for issue in ast_analysis.issues])
+                            security_issues = '\n'.join(ast_analysis.security_concerns) if ast_analysis.security_concerns else "No security analysis available"
+                        else:
+                            review_text = f"Basic analysis completed for {file_path}"
+                            security_issues = "Analysis failed"
                         optimized_code = file_content
-                        explanation_text = f"Failed to analyze {file_path} with AI, AST analysis completed"
-                        security_issues = '\n'.join(ast_analysis.security_concerns) if ast_analysis.security_concerns else "Analysis failed"
+                        explanation_text = f"Failed to analyze {file_path} with AI" + (", AST analysis completed" if ast_analysis else "")
 
                 # Detect programming language and extract rating
                 detected_language = detect_programming_language(file_content)

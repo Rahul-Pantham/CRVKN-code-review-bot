@@ -44,61 +44,54 @@ const Register = ({ setShowLogin, setShowRegister, setIsAuthenticated, setUserna
   };
 
   return (
-    <div className="min-h-screen bg-[#343541] flex items-center justify-center">
-      <div className="bg-[#40414f] rounded-2xl shadow-lg p-8 w-full max-w-md">
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
-            <div className="w-8 h-8 bg-[#343541] rounded flex items-center justify-center">
-              <div className="w-4 h-4 border-2 border-white rounded-sm"></div>
-            </div>
-          </div>
-          <span className="text-white text-xl font-semibold">CRVKN</span>
-        </div>
-        <h2 className="text-white text-2xl font-medium mb-6">
-          Register
-        </h2>
+    <div className="min-h-screen bg-[#343541] flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        {/* Register Form */}
+        <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-md border border-white/10 rounded-2xl p-8 shadow-2xl">
+          <h2 className="text-white text-2xl font-semibold mb-6 text-center">Register</h2>
 
-        {/* Registration Form - No OTP Step Needed */}
-        <div className="space-y-4">
+          {/* Registration Form - No OTP Step Needed */}
+          <div className="space-y-4">
             <input
               type="text"
               placeholder="Username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full bg-[#343541] text-white placeholder-gray-400 rounded-lg p-3 outline-none"
+              className="w-full px-4 py-3 bg-gray-800/50 border border-white/20 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
             />
             <input
               type="email"
               placeholder="Email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-[#343541] text-white placeholder-gray-400 rounded-lg p-3 outline-none"
+              className="w-full px-4 py-3 bg-gray-800/50 border border-white/20 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
             />
             <input
               type="password"
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-[#343541] text-white placeholder-gray-400 rounded-lg p-3 outline-none"
+              className="w-full px-4 py-3 bg-gray-800/50 border border-white/20 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
             />
-            {error && <p className="text-red-500 text-sm">{error}</p>}
-            {success && <p className="text-[#10a37f] text-sm">{success}</p>}
+            {error && <p className="text-sm px-4 py-3 rounded-lg border border-red-500/30 bg-red-500/10 text-red-300">{error}</p>}
+            {success && <p className="text-sm px-4 py-3 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300">{success}</p>}
             <button
               onClick={handleRegister}
               disabled={!username || !email || !password}
-              className="w-full bg-[#10a37f] text-white py-3 rounded-lg hover:bg-[#0d8c6b] font-medium disabled:bg-gray-600 disabled:cursor-not-allowed"
+              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold py-3 rounded-lg shadow-lg transition-all duration-200 transform hover:scale-105 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed disabled:transform-none"
             >
               Register
             </button>
-            <p className="text-gray-300 text-sm text-center">
+            <p className="text-gray-400 text-sm text-center pt-4">
               Already have an account?{' '}
               <span
-                className="text-[#10a37f] cursor-pointer hover:underline"
+                className="text-purple-400 cursor-pointer hover:text-purple-300 hover:underline font-semibold"
                 onClick={() => { if (setShowLogin) { setShowRegister && setShowRegister(false); setShowLogin(true); } else { navigate('/login'); } }}
               >
                 Login
               </span>
             </p>
+          </div>
         </div>
       </div>
     </div>

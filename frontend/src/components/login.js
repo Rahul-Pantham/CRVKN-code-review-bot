@@ -47,55 +47,57 @@ const Login = ({ setIsAuthenticated, setUsername, setShowLogin, setShowRegister,
 
   return (
     <div className="min-h-screen bg-[#343541] flex items-center justify-center p-4">
-      <div className="card w-full max-w-md p-8">
-        <div className="mb-6 text-center">
-          <span className="text-white text-xl font-semibold tracking-wide">CRVKN</span>
-        </div>
+      <div className="w-full max-w-md">
+        {/* Login Form */}
+        <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-md border border-white/10 rounded-2xl p-8 shadow-2xl">
+          <h2 className="text-white text-2xl font-semibold mb-6 text-center">Login</h2>
 
-        <h2 className="text-white text-2xl font-semibold mb-5">Login</h2>
+          <div className="space-y-4">
+            <input
+              type="text"
+              placeholder="Username"
+              value={usernameLocal}
+              onChange={(e) => setLocalUsername(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-800/50 border border-white/20 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-800/50 border border-white/20 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+            />
 
-        <div className="space-y-4">
-          <input
-            type="text"
-            placeholder="Username"
-            value={usernameLocal}
-            onChange={(e) => setLocalUsername(e.target.value)}
-            className="field"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="field"
-          />
+            {error && (
+              <div className="text-sm px-4 py-3 rounded-lg border border-red-500/30 bg-red-500/10 text-red-300">
+                {error}
+              </div>
+            )}
 
-          {error && (
-            <div className="text-sm px-3 py-2 rounded border border-red-500/30 bg-red-500/10 text-red-300">
-              {error}
-            </div>
-          )}
-
-          <button onClick={handleLogin} className="w-full btn btn-auth justify-center text-base py-3">
-            Login
-          </button>
-
-          <p className="text-gray-300 text-sm text-center">
-            Don't have an account?{' '}
-            <span
-              className="text-[var(--color-auth)] cursor-pointer hover:underline"
-              onClick={() => {
-                if (setShowRegister) {
-                  setShowLogin && setShowLogin(false);
-                  setShowRegister(true);
-                } else {
-                  navigate('/register');
-                }
-              }}
+            <button 
+              onClick={handleLogin} 
+              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold py-3 rounded-lg shadow-lg transition-all duration-200 transform hover:scale-105"
             >
-              Register
-            </span>
-          </p>
+              Login
+            </button>
+
+            <p className="text-gray-400 text-sm text-center pt-4">
+              Don't have an account?{' '}
+              <span
+                className="text-blue-400 cursor-pointer hover:text-blue-300 hover:underline font-semibold"
+                onClick={() => {
+                  if (setShowRegister) {
+                    setShowLogin && setShowLogin(false);
+                    setShowRegister(true);
+                  } else {
+                    navigate('/register');
+                  }
+                }}
+              >
+                Register
+              </span>
+            </p>
+          </div>
         </div>
       </div>
     </div>

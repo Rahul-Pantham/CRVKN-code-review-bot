@@ -25,7 +25,7 @@ import random
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Dict
-from .ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
+from ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
 
 # ------------------ Constants ------------------
 PREDEFINED_REJECTION_REASONS = [

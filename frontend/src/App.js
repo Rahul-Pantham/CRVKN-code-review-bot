@@ -223,6 +223,14 @@ const CodeReviewApp = () => {
 
   const handleFeedbackSubmitForReview = async (reviewId, feedback, rejectionReason = null, sectionStates = null) => {
     if (!reviewId || !token) return;
+    
+    console.log('🔍 handleFeedbackSubmitForReview called with:', {
+      reviewId,
+      feedback,
+      rejectionReason,
+      sectionStates
+    });
+    
     try {
       // Map frontend camelCase to backend snake_case (new sections)
       const sectionFeedback = sectionStates ? { 
@@ -240,6 +248,8 @@ const CodeReviewApp = () => {
         semanticErrors: sectionStates.semanticErrors    // NEW: semantic errors
       } : {};
       
+      console.log('📤 Sending section feedback to backend:', sectionFeedback);
+      
       const response = await fetch(API_BASE + '/submit-feedback', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, 
@@ -256,6 +266,9 @@ const CodeReviewApp = () => {
         const errorData = await response.json();
         throw new Error(errorData.detail || `Request failed with status code ${response.status}`);
       }
+      
+      const responseData = await response.json();
+      console.log('✅ Feedback submission response:', responseData);
       // Only finalize a review when all available sections have been reviewed
       const review = reviewList.find(r => r.id === reviewId) || (reviewData && reviewData.id === reviewId ? reviewData : null);
       if (review && sectionStates) {
@@ -415,6 +428,21 @@ const CodeReviewApp = () => {
       <div className="fixed top-4 right-4 z-50 flex gap-3">
         <button onClick={handleLogout} className="btn btn-logout">Logout</button>
       </div>
+
+      {/* User Profile Display - Bottom Left Corner */}
+      {username && (
+        <div className="fixed bottom-6 left-6 z-50 flex items-center gap-3 bg-gradient-to-r from-purple-600/20 to-blue-600/20 backdrop-blur-md border border-white/20 rounded-full px-4 py-3 shadow-lg">
+          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center shadow-md">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xs text-gray-400 font-medium">Logged in as</span>
+            <span className="text-sm font-semibold text-white">{username}</span>
+          </div>
+        </div>
+      )}
 
   {!showHistory && <button onClick={() => setShowHistory(true)} className="fixed left-6 top-4 z-50 btn btn-primary">History</button>}
       {showHistory && (

@@ -1845,11 +1845,27 @@ def submit_feedback(data: FeedbackInput, current_user: User = Depends(get_curren
                 db.add(section_feedback_record)
             
             # Update section feedback columns
+            print(f"DEBUG: Updating section feedback columns...")
+            print(f"DEBUG: Section feedback data received: {data.section_feedback}")
             for frontend_name, db_column in section_mapping.items():
                 if frontend_name in data.section_feedback:
-                    setattr(section_feedback_record, db_column, data.section_feedback[frontend_name])
+                    value = data.section_feedback[frontend_name]
+                    print(f"  ✓ Setting {db_column} = '{value}'")
+                    setattr(section_feedback_record, db_column, value)
+                else:
+                    current_value = getattr(section_feedback_record, db_column, None)
+                    if current_value:
+                        print(f"  → Keeping {db_column} = '{current_value}' (not in current update)")
             
             section_feedback_record.overall_feedback = data.feedback
+            print(f"DEBUG: Set overall_feedback = '{data.feedback}'")
+            print(f"DEBUG: Final section_feedback_record state before commit:")
+            print(f"  - key_findings_section: {section_feedback_record.key_findings_section}")
+            print(f"  - architecture_section: {section_feedback_record.architecture_section}")
+            print(f"  - recommendations_section: {section_feedback_record.recommendations_section}")
+            print(f"  - optimized_code_section: {section_feedback_record.optimized_code_section}")
+            print(f"  - syntax_errors_section: {section_feedback_record.syntax_errors_section}")
+            print(f"  - semantic_errors_section: {section_feedback_record.semantic_errors_section}")
         
         # Update status if rejection reasons provided
         if data.rejection_reasons or data.custom_rejection_reason:
@@ -1860,14 +1876,17 @@ def submit_feedback(data: FeedbackInput, current_user: User = Depends(get_curren
             print(f"DEBUG: Set status to reviewed")
             
         db.commit()
+        db.refresh(section_feedback_record) if data.section_feedback else None
         print(f"DEBUG: Successfully committed to database")
+        print(f"DEBUG: Section feedback record ID: {section_feedback_record.id if data.section_feedback else 'N/A'}")
         
         return {
             "message": "Feedback submitted successfully",
             "status": review.status,
             "rejection_reasons": data.rejection_reasons,
             "custom_reason": data.custom_rejection_reason,
-            "section_feedback": data.section_feedback
+            "section_feedback": data.section_feedback,
+            "section_feedback_id": section_feedback_record.id if data.section_feedback else None
         }
     finally:
         db.close()
@@ -2080,7 +2099,7 @@ Safe ✅ No security problems found.
 {code_for_prompt}
 ```
 
-Provide your analysis following the exact section markers (###REVIEW###, ###OPTIMIZED_CODE###, ###EXPLANATION###, etc.)."""
+Provide your analysis following the exact section markers (###CODE_QUALITY###, ###KEY_FINDINGS###, ###SECURITY###, ###PERFORMANCE###, ###ARCHITECTURE###, ###BEST_PRACTICES###, ###RECOMMENDATIONS###, ###SYNTAX_ERRORS###, ###SEMANTIC_ERRORS###, ###OPTIMIZED_CODE###, ###EXPLANATION###)."""
 
                     try:
                         combined_resp = extract_text_from_gemini_response(model.generate_content(combined_prompt))
@@ -2092,22 +2111,65 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
                             m = re.search(pattern, text, re.S)
                             return m.group(1).strip() if m else ''
 
-                        review_text = parse_section(combined_resp, '###REVIEW###')
+                        # Parse ALL sections from the response
+                        code_quality = parse_section(combined_resp, '###CODE_QUALITY###')
+                        key_findings = parse_section(combined_resp, '###KEY_FINDINGS###')
+                        security_issues = parse_section(combined_resp, '###SECURITY###')
+                        performance_analysis = parse_section(combined_resp, '###PERFORMANCE###')
+                        architecture_analysis = parse_section(combined_resp, '###ARCHITECTURE###')
+                        best_practices = parse_section(combined_resp, '###BEST_PRACTICES###')
+                        recommendations = parse_section(combined_resp, '###RECOMMENDATIONS###')
+                        syntax_errors_section = parse_section(combined_resp, '###SYNTAX_ERRORS###')
+                        semantic_errors_section = parse_section(combined_resp, '###SEMANTIC_ERRORS###')
                         optimized_code = parse_section(combined_resp, '###OPTIMIZED_CODE###')
                         explanation_text = parse_section(combined_resp, '###EXPLANATION###')
-                        security_issues = parse_section(combined_resp, '###SECURITY###')
+                        
+                        # Combine all sections into review_text with section markers
+                        review_sections = []
+                        
+                        if code_quality:
+                            review_sections.append(f"###CODE_QUALITY###\n{code_quality}")
+                        
+                        if key_findings:
+                            review_sections.append(f"###KEY_FINDINGS###\n{key_findings}")
+                        
+                        if security_issues:
+                            review_sections.append(f"###SECURITY###\n{security_issues}")
+                        
+                        if performance_analysis:
+                            review_sections.append(f"###PERFORMANCE###\n{performance_analysis}")
+                        
+                        if architecture_analysis:
+                            review_sections.append(f"###ARCHITECTURE###\n{architecture_analysis}")
+                        
+                        if best_practices:
+                            review_sections.append(f"###BEST_PRACTICES###\n{best_practices}")
+                        
+                        if recommendations:
+                            review_sections.append(f"###RECOMMENDATIONS###\n{recommendations}")
+                        
+                        # Add syntax and semantic error sections (always)
+                        review_sections.append(f"###SYNTAX_ERRORS###\n{syntax_errors_section}")
+                        review_sections.append(f"###SEMANTIC_ERRORS###\n{semantic_errors_section}")
+                        
+                        # Join all sections
+                        review_text = "\n\n".join(review_sections)
                         
                         # Fallback to AST findings if Gemini response is empty
-                        if not review_text and ast_analysis.issues:
+                        if not review_text and ast_analysis and ast_analysis.issues:
                             review_text = "AST Analysis findings:\n" + '\n'.join([f"- {issue}" for issue in ast_analysis.issues])
                         
                     except Exception as e:
                         print(f"Error processing {file_path}: {e}")
                         # Use AST analysis as fallback
-                        review_text = f"AST Analysis for {file_path}:\n" + '\n'.join([f"- {issue}" for issue in ast_analysis.issues]) if ast_analysis.issues else f"Basic analysis completed for {file_path}"
+                        if ast_analysis and ast_analysis.issues:
+                            review_text = f"AST Analysis for {file_path}:\n" + '\n'.join([f"- {issue}" for issue in ast_analysis.issues])
+                            security_issues = '\n'.join(ast_analysis.security_concerns) if ast_analysis.security_concerns else "No security analysis available"
+                        else:
+                            review_text = f"Basic analysis completed for {file_path}"
+                            security_issues = "Analysis failed"
                         optimized_code = file_content
-                        explanation_text = f"Failed to analyze {file_path} with AI, AST analysis completed"
-                        security_issues = '\n'.join(ast_analysis.security_concerns) if ast_analysis.security_concerns else "Analysis failed"
+                        explanation_text = f"Failed to analyze {file_path} with AI" + (", AST analysis completed" if ast_analysis else "")
 
                 # Detect programming language and extract rating
                 detected_language = detect_programming_language(file_content)
@@ -2406,6 +2468,82 @@ def get_section_feedback_analytics(current_admin = Depends(get_current_admin)):
                 "recent_feedback_count": recent_feedback,
                 "generated_at": datetime.utcnow().isoformat()
             }
+        }
+    finally:
+        db.close()
+
+@app.get("/admin/diagnostics/section-feedback")
+def debug_section_feedback(current_admin = Depends(get_current_admin)):
+    """Diagnostics endpoint: verify section_feedback table, columns, and basic counts.
+    Helps debug why section-level analytics may not be showing up.
+    """
+    db = SessionLocal()
+    try:
+        from sqlalchemy import inspect, func
+
+        insp = inspect(engine)
+        tables = insp.get_table_names()
+        table_exists = "section_feedback" in tables
+
+        columns = []
+        if table_exists:
+            for col in insp.get_columns("section_feedback"):
+                columns.append({
+                    "name": col.get("name"),
+                    "type": str(col.get("type"))
+                })
+
+        # Required columns for current analytics/cards
+        required_columns = [
+            "key_findings_section",
+            "architecture_section",
+            "recommendations_section",
+            "optimized_code_section",
+            "syntax_errors_section",
+            "semantic_errors_section",
+        ]
+
+        required_report = {c: any(col["name"] == c for col in columns) for c in required_columns} if table_exists else {c: False for c in required_columns}
+
+        # Row counts and a small sample
+        total_rows = 0
+        recent = []
+        if table_exists:
+            total_rows = db.query(func.count(SectionFeedback.id)).scalar() or 0
+
+            sample = db.query(
+                SectionFeedback.id,
+                SectionFeedback.review_id,
+                SectionFeedback.user_id,
+                SectionFeedback.key_findings_section,
+                SectionFeedback.architecture_section,
+                SectionFeedback.recommendations_section,
+                SectionFeedback.optimized_code_section,
+                SectionFeedback.syntax_errors_section,
+                SectionFeedback.semantic_errors_section,
+                SectionFeedback.created_at,
+            ).order_by(SectionFeedback.created_at.desc()).limit(5).all()
+
+            for s in sample:
+                recent.append({
+                    "id": s[0],
+                    "review_id": s[1],
+                    "user_id": s[2],
+                    "key_findings": s[3],
+                    "architecture": s[4],
+                    "recommendations": s[5],
+                    "optimized_code": s[6],
+                    "syntax_errors": s[7],
+                    "semantic_errors": s[8],
+                    "created_at": s[9].isoformat() if s[9] else None,
+                })
+
+        return {
+            "table_exists": table_exists,
+            "columns": columns,
+            "required_columns_present": required_report,
+            "total_rows": total_rows,
+            "recent": recent,
         }
     finally:
         db.close()

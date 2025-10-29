@@ -1,4 +1,4 @@
-# FORCE REDEPLOY - 2025-10-29-v2 FIX: Frontend + Backend sync with smart acceptance
+# FORCE REDEPLOY - 2025-10-29-v3 COMPLETE: Push ALL frontend + backend changes with section-level accept/reject
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware

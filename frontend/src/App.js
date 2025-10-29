@@ -1,3 +1,4 @@
+// DEPLOYMENT: 2025-10-29 v3 - Complete frontend with section-level accept/reject functionality
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Upload, GitBranch } from 'lucide-react';
 import { Routes, Route, useNavigate } from 'react-router-dom';

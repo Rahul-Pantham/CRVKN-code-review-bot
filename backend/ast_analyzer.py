@@ -237,27 +237,30 @@ class PythonASTAnalyzer:
                 if hasattr(node, 'end_lineno') and node.end_lineno:
                     func_length = node.end_lineno - node.lineno
                     if func_length > 50:
-                        issues.append(f"Function '{node.name}' is too long ({func_length} lines)")
+                        issues.append(f"Line {node.lineno}: Function '{node.name}' is too long ({func_length} lines)")
                 
                 # Check for too many parameters
                 if len(node.args.args) > 7:
-                    issues.append(f"Function '{node.name}' has too many parameters ({len(node.args.args)})")
+                    issues.append(f"Line {node.lineno}: Function '{node.name}' has too many parameters ({len(node.args.args)})")
         
         # Check for unused variables (basic check)
-        assigned_vars = set()
+        assigned_vars = {}  # Store variable name -> line number
         used_vars = set()
         
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
-                        assigned_vars.add(target.id)
+                        assigned_vars[target.id] = node.lineno
             elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
                 used_vars.add(node.id)
         
-        unused_vars = assigned_vars - used_vars
+        unused_vars = set(assigned_vars.keys()) - used_vars
         if unused_vars:
-            issues.append(f"Potentially unused variables: {', '.join(list(unused_vars)[:5])}")
+            # Get line numbers for first few unused vars
+            unused_with_lines = [(var, assigned_vars[var]) for var in list(unused_vars)[:5]]
+            unused_str = ', '.join([f"'{var}' (line {line})" for var, line in unused_with_lines])
+            issues.append(f"Potentially unused variables: {unused_str}")
         
         return issues
     
@@ -282,11 +285,12 @@ class PythonASTAnalyzer:
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 if node.func.id in dangerous_funcs:
-                    security_issues.append(f"Dangerous function '{node.func.id}' used")
+                    line_num = node.lineno if hasattr(node, 'lineno') else 'unknown'
+                    security_issues.append(f"Line {line_num}: Dangerous function '{node.func.id}' used")
         
         # Check for SQL injection patterns
         if re.search(r'["\'].*%.*["\'].*%', code):
-            security_issues.append("Potential SQL injection vulnerability (string formatting)")
+            security_issues.append("Potential SQL injection vulnerability (string formatting) - review string concatenation in SQL queries")
         
         return security_issues
     
@@ -322,13 +326,15 @@ class PythonASTAnalyzer:
         # Check naming conventions
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
+                line_num = node.lineno if hasattr(node, 'lineno') else 'unknown'
                 if not node.name.islower() or '__' in node.name[1:-1]:
                     if not node.name.startswith('__'):  # Allow magic methods
-                        suggestions.append(f"Function '{node.name}' should use snake_case naming")
+                        suggestions.append(f"Line {line_num}: Function '{node.name}' should use snake_case naming")
             
             elif isinstance(node, ast.ClassDef):
+                line_num = node.lineno if hasattr(node, 'lineno') else 'unknown'
                 if not node.name[0].isupper():
-                    suggestions.append(f"Class '{node.name}' should use PascalCase naming")
+                    suggestions.append(f"Line {line_num}: Class '{node.name}' should use PascalCase naming")
         
         # Check for docstrings
         functions_without_docstrings = []
@@ -337,7 +343,8 @@ class PythonASTAnalyzer:
                 if not (isinstance(node.body[0], ast.Expr) and 
                        isinstance(node.body[0].value, ast.Constant) and 
                        isinstance(node.body[0].value.value, str)):
-                    functions_without_docstrings.append(node.name)
+                    line_num = node.lineno if hasattr(node, 'lineno') else 'unknown'
+                    functions_without_docstrings.append(f"'{node.name}' (line {line_num})")
         
         if functions_without_docstrings:
             suggestions.append(f"Functions missing docstrings: {', '.join(functions_without_docstrings[:3])}")
@@ -382,16 +389,16 @@ class JavaScriptASTAnalyzer:
                     close_parens = before_brace.count(')')
                     
                     if open_parens != close_parens:
-                        syntax_errors.append(f"Line {i}: Unmatched parentheses in function declaration - missing ')' before '{{'")
+                        syntax_errors.append(f"Syntax Error on line {i}: Unmatched parentheses in function declaration - missing ')' before '{{'")
                 elif line_stripped.endswith('('):
-                    syntax_errors.append(f"Line {i}: Incomplete function declaration - parameters expected")
+                    syntax_errors.append(f"Syntax Error on line {i}: Incomplete function declaration - parameters expected")
             
             # Check for missing semicolons after statements (simple heuristic)
             if line_stripped and not line_stripped.endswith((';', '{', '}', ',', ':', '//')):
                 if any(keyword in line_stripped for keyword in ['const ', 'let ', 'var ', 'return ']):
                     # Check if it looks like a complete statement
                     if not line_stripped.startswith('if') and not line_stripped.startswith('for') and not line_stripped.startswith('while'):
-                        semantic_errors.append(f"Line {i}: Consider adding semicolon at end of statement")
+                        semantic_errors.append(f"Semantic Issue on line {i}: Consider adding semicolon at end of statement")
             
             # Check for unclosed braces/brackets/parentheses
             open_braces = line_stripped.count('{')
@@ -406,7 +413,7 @@ class JavaScriptASTAnalyzer:
                 if '{' in line_stripped and '}' not in line_stripped and not any(lines[j].strip().startswith('}') for j in range(i, min(i + 3, len(lines)))):
                     pass  # Opening brace is OK if closed later
                 elif open_parens > close_parens and '{' not in line_stripped:
-                    syntax_errors.append(f"Line {i}: Unclosed parenthesis '(' detected")
+                    syntax_errors.append(f"Syntax Error on line {i}: Unclosed parenthesis '(' detected")
         
         # Check for semantic issues
         

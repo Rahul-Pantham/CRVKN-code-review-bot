@@ -586,12 +586,14 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
 2️⃣ **Logic & Semantics** - logical errors, edge cases, control flow problems
 3️⃣ **Architecture & Design** - SOLID principles, design patterns, modularity
 4️⃣ **Performance** - inefficient loops, memory issues, blocking operations
-5️⃣ **Security** - hardcoded secrets, injection risks, weak crypto, missing validation"""
+5️⃣ **Security** - hardcoded secrets, injection risks, weak crypto, missing validation
+6️⃣ **Maintainability** - complexity, coupling, scalability, technical debt"""
         
-        if preferences.best_practices:
-            analysis_depth += "\n6️⃣ **Best Practices** - code standards, naming conventions, documentation"
+        # Best practices section removed per user request
+        # if preferences.best_practices:
+        #     analysis_depth += "\n6️⃣ **Best Practices** - code standards, naming conventions, documentation"
         
-        analysis_depth += "\n7️⃣ **Maintainability** - complexity, coupling, scalability, technical debt"
+        # analysis_depth += "\n7️⃣ **Maintainability** - complexity, coupling, scalability, technical debt"
         
     else:
         # Simple, beginner-friendly mode
@@ -615,6 +617,7 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
         "List each issue with:",
         "  • Severity: 🔴 CRITICAL | 🟠 HIGH | 🟡 MEDIUM | 🟢 LOW",
         "  • Category: Syntax/Logic/Architecture/Performance/Security/Style",
+        "  • **Line number (if applicable)**: Specify 'Line X:' for each issue",
         "  • Brief description + specific fix",
         "Group by severity. If no issues: 'No critical issues found! ✅'",
         "Max 150 words.",
@@ -662,19 +665,19 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
             "",
         ])
     
-    # Best practices as SEPARATE section (conditional)
-    if preferences.best_practices:
-        prompt_parts.extend([
-            "###BEST_PRACTICES###",
-            "📖 **Best Practices:**",
-            "- Code standards compliance",
-            "- Naming conventions",
-            "- Documentation quality",
-            "- Error handling patterns",
-            "- If compliant: 'Follows best practices ✅'",
-            "- Max 80 words",
-            "",
-        ])
+    # Best practices section REMOVED per user request
+    # if preferences.best_practices:
+    #     prompt_parts.extend([
+    #         "###BEST_PRACTICES###",
+    #         "📖 **Best Practices:**",
+    #         "- Code standards compliance",
+    #         "- Naming conventions",
+    #         "- Documentation quality",
+    #         "- Error handling patterns",
+    #         "- If compliant: 'Follows best practices ✅'",
+    #         "- Max 80 words",
+    #         "",
+    #     ])
     
     # Optimized code section (if user wants it)
     if preferences.code_optimization:
@@ -740,9 +743,11 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
         "- Incorrect indentation (for Python)",
         "- Incomplete code blocks",
         "- Invalid keywords or language-specific syntax violations",
-        "Format: List each error as '• [Error description] on line X' or '• [Error description]'",
+        "**CRITICAL: MUST include line numbers for EVERY error found!**",
+        "Format: List each error as '• Line X: [Error description]' where X is the line number",
+        "Example: '• Line 5: Missing closing parenthesis'",
         "If NO syntax errors found, respond with EXACTLY: 'No syntax errors detected.'",
-        "Be thorough - check every line carefully!",
+        "Be thorough - check every line carefully and ALWAYS specify the line number!",
         "",
     ])
     
@@ -759,9 +764,11 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
         "- Logical errors (incorrect conditions, wrong operators)",
         "- Missing return statements where expected",
         "- Incorrect scope or variable access issues",
-        "Format: List each error as '• [Error description]'",
+        "**CRITICAL: MUST include line numbers for EVERY error found!**",
+        "Format: List each error as '• Line X: [Error description]' where X is the line number",
+        "Example: '• Line 12: Variable 'result' used before definition'",
         "If NO semantic errors found, respond with EXACTLY: 'No semantic errors detected.'",
-        "Be thorough - analyze the entire logic flow!",
+        "Be thorough - analyze the entire logic flow and ALWAYS specify the line number!",
         "",
     ])
     
@@ -1867,13 +1874,49 @@ def submit_feedback(data: FeedbackInput, current_user: User = Depends(get_curren
             print(f"  - syntax_errors_section: {section_feedback_record.syntax_errors_section}")
             print(f"  - semantic_errors_section: {section_feedback_record.semantic_errors_section}")
         
-        # Update status if rejection reasons provided
-        if data.rejection_reasons or data.custom_rejection_reason:
+        # Smart status calculation based on section-level feedback
+        # Rule: If user provides rejection reasons from modal → REJECTED
+        # Otherwise: Calculate acceptance rate from sections
+        #   - If >50% sections accepted → ACCEPTED (status='reviewed')
+        #   - If ≤50% sections accepted → REJECTED (status='rejected')
+        
+        has_rejection_reasons = data.rejection_reasons or data.custom_rejection_reason
+        
+        if has_rejection_reasons:
+            # User explicitly rejected via modal
             review.status = "rejected"
-            print(f"DEBUG: Set status to rejected")
+            print(f"DEBUG: Set status to rejected (explicit rejection via modal)")
+        elif data.section_feedback:
+            # Calculate acceptance rate from section feedback
+            reviewed_sections = {k: v for k, v in data.section_feedback.items() if v in ['accepted', 'rejected']}
+            
+            if len(reviewed_sections) > 0:
+                accepted_count = sum(1 for v in reviewed_sections.values() if v == 'accepted')
+                rejected_count = sum(1 for v in reviewed_sections.values() if v == 'rejected')
+                total_reviewed = len(reviewed_sections)
+                acceptance_rate = (accepted_count / total_reviewed) * 100
+                
+                print(f"DEBUG: Section-level analysis:")
+                print(f"  - Total sections reviewed: {total_reviewed}")
+                print(f"  - Accepted: {accepted_count}")
+                print(f"  - Rejected: {rejected_count}")
+                print(f"  - Acceptance rate: {acceptance_rate:.1f}%")
+                
+                # More than 50% accepted → Overall ACCEPTED
+                if acceptance_rate > 50:
+                    review.status = "reviewed"
+                    print(f"DEBUG: Set status to REVIEWED (acceptance rate {acceptance_rate:.1f}% > 50%)")
+                else:
+                    review.status = "rejected"
+                    print(f"DEBUG: Set status to REJECTED (acceptance rate {acceptance_rate:.1f}% ≤ 50%)")
+            else:
+                # No sections have been reviewed yet (all null)
+                review.status = "reviewed"
+                print(f"DEBUG: Set status to reviewed (no section-level feedback yet)")
         else:
+            # No section feedback provided, default to reviewed
             review.status = "reviewed"
-            print(f"DEBUG: Set status to reviewed")
+            print(f"DEBUG: Set status to reviewed (default)")
             
         db.commit()
         db.refresh(section_feedback_record) if data.section_feedback else None
@@ -2266,7 +2309,11 @@ def get_overall_stats(current_admin = Depends(get_current_admin)):
     db = SessionLocal()
     try:
         total_reviews = db.query(Review).count()
-        accepted_reviews = db.query(Review).filter(Review.feedback == "positive").count()
+        # Count reviews based on status
+        # Accepted: status is "reviewed" (user clicked accept/provided feedback without rejecting)
+        # Rejected: status is "rejected" (user clicked reject and provided reasons)
+        # Pending: status is "completed" (no user feedback yet)
+        accepted_reviews = db.query(Review).filter(Review.status == "reviewed").count()
         rejected_reviews = db.query(Review).filter(Review.status == "rejected").count()
         total_users = db.query(User).count()
         
@@ -2310,7 +2357,10 @@ def get_per_user_stats(current_admin = Depends(get_current_admin)):
         for user in users:
             user_reviews = db.query(Review).filter(Review.user_id == user.id).all()
             total = len(user_reviews)
-            accepted = len([r for r in user_reviews if r.feedback == "positive"])
+            # Count reviews based on status field
+            # Accepted: status = "reviewed" (user accepted the review)
+            # Rejected: status = "rejected" (user rejected the review)
+            accepted = len([r for r in user_reviews if r.status == "reviewed"])
             rejected = len([r for r in user_reviews if r.status == "rejected"])
             
             users_stats.append({

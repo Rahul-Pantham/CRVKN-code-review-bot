@@ -7,6 +7,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
+import re
+import socket
+import fnmatch
 import google.generativeai as genai
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Index, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
@@ -25,7 +28,19 @@ import random
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Dict
-from ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
+
+# Import ast_analyzer with fallback for different deployment environments
+try:
+    from backend.ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
+except ImportError:
+    try:
+        from ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
+    except ImportError:
+        # Fallback if neither import works (for local dev)
+        import sys
+        import os
+        sys.path.insert(0, os.path.dirname(__file__))
+        from ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
 
 # ------------------ Constants ------------------
 PREDEFINED_REJECTION_REASONS = [

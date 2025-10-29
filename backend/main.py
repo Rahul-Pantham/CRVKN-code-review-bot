@@ -1,3 +1,4 @@
+# FORCE REDEPLOY - 2025-10-29 FIX: AST import error + Smart acceptance logic (>50% rule)
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,6 +7,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
+import re
+import socket
+import fnmatch
 import google.generativeai as genai
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Index, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
@@ -24,7 +28,19 @@ import random
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Dict
-from .ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
+
+# Import ast_analyzer with fallback for different deployment environments
+try:
+    from backend.ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
+except ImportError:
+    try:
+        from ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
+    except ImportError:
+        # Fallback if neither import works (for local dev)
+        import sys
+        import os
+        sys.path.insert(0, os.path.dirname(__file__))
+        from ast_analyzer import CodeAnalyzer, format_ast_analysis_for_gemini
 
 # ------------------ Constants ------------------
 PREDEFINED_REJECTION_REASONS = [
@@ -130,12 +146,18 @@ def generate_otp():
     return str(random.randint(100000, 999999))
 
 def send_otp_email(email: str, otp: str):
-    """Send OTP to user's email"""
+    """Send OTP to user's email
+    Fallback: If SMTP fails, logs OTP so it can be retrieved via /admin/debug/users
+    """
     try:
         if not SMTP_USERNAME or not SMTP_PASSWORD:
-            print(f"⚠️  Email credentials not configured - OTP email not sent")
-            print(f"🔢 DEBUG OTP for {email}: {otp}")
-            print(f"   Use this OTP to complete verification: {otp}")
+            print(f"\n{'='*70}")
+            print(f"EMAIL SERVICE DISABLED - FALLBACK MODE ACTIVE")
+            print(f"{'='*70}")
+            print(f"Email credentials not configured")
+            print(f"OTP Code for {email}: {otp}")
+            print(f"User can retrieve this code via /admin/debug/users endpoint")
+            print(f"{'='*70}\n")
             return False
         
         msg = MIMEMultipart()
@@ -166,10 +188,18 @@ def send_otp_email(email: str, otp: str):
         server.sendmail(FROM_EMAIL, email, text)
         server.quit()
         
-        print(f"OTP email sent to {email}")
+        print(f"[SUCCESS] OTP email sent to {email}")
         return True
     except Exception as e:
-        print(f"Failed to send OTP email: {str(e)}")
+        print(f"\n{'='*70}")
+        print(f"EMAIL SEND FAILED - FALLBACK MODE ACTIVE")
+        print(f"{'='*70}")
+        print(f"Error: {str(e)}")
+        print(f"OTP Code for {email}: {otp}")
+        print(f"User can retrieve this code via /admin/debug/users endpoint")
+        print(f"Or use this code directly for testing")
+        print(f"{'='*70}\n")
+        return False
         return False
 
 class Review(Base):
@@ -571,12 +601,14 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
 2️⃣ **Logic & Semantics** - logical errors, edge cases, control flow problems
 3️⃣ **Architecture & Design** - SOLID principles, design patterns, modularity
 4️⃣ **Performance** - inefficient loops, memory issues, blocking operations
-5️⃣ **Security** - hardcoded secrets, injection risks, weak crypto, missing validation"""
+5️⃣ **Security** - hardcoded secrets, injection risks, weak crypto, missing validation
+6️⃣ **Maintainability** - complexity, coupling, scalability, technical debt"""
         
-        if preferences.best_practices:
-            analysis_depth += "\n6️⃣ **Best Practices** - code standards, naming conventions, documentation"
+        # Best practices section removed per user request
+        # if preferences.best_practices:
+        #     analysis_depth += "\n6️⃣ **Best Practices** - code standards, naming conventions, documentation"
         
-        analysis_depth += "\n7️⃣ **Maintainability** - complexity, coupling, scalability, technical debt"
+        # analysis_depth += "\n7️⃣ **Maintainability** - complexity, coupling, scalability, technical debt"
         
     else:
         # Simple, beginner-friendly mode
@@ -600,6 +632,7 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
         "List each issue with:",
         "  • Severity: 🔴 CRITICAL | 🟠 HIGH | 🟡 MEDIUM | 🟢 LOW",
         "  • Category: Syntax/Logic/Architecture/Performance/Security/Style",
+        "  • **Line number (if applicable)**: Specify 'Line X:' for each issue",
         "  • Brief description + specific fix",
         "Group by severity. If no issues: 'No critical issues found! ✅'",
         "Max 150 words.",
@@ -647,19 +680,19 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
             "",
         ])
     
-    # Best practices as SEPARATE section (conditional)
-    if preferences.best_practices:
-        prompt_parts.extend([
-            "###BEST_PRACTICES###",
-            "📖 **Best Practices:**",
-            "- Code standards compliance",
-            "- Naming conventions",
-            "- Documentation quality",
-            "- Error handling patterns",
-            "- If compliant: 'Follows best practices ✅'",
-            "- Max 80 words",
-            "",
-        ])
+    # Best practices section REMOVED per user request
+    # if preferences.best_practices:
+    #     prompt_parts.extend([
+    #         "###BEST_PRACTICES###",
+    #         "📖 **Best Practices:**",
+    #         "- Code standards compliance",
+    #         "- Naming conventions",
+    #         "- Documentation quality",
+    #         "- Error handling patterns",
+    #         "- If compliant: 'Follows best practices ✅'",
+    #         "- Max 80 words",
+    #         "",
+    #     ])
     
     # Optimized code section (if user wants it)
     if preferences.code_optimization:
@@ -725,9 +758,11 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
         "- Incorrect indentation (for Python)",
         "- Incomplete code blocks",
         "- Invalid keywords or language-specific syntax violations",
-        "Format: List each error as '• [Error description] on line X' or '• [Error description]'",
+        "**CRITICAL: MUST include line numbers for EVERY error found!**",
+        "Format: List each error as '• Line X: [Error description]' where X is the line number",
+        "Example: '• Line 5: Missing closing parenthesis'",
         "If NO syntax errors found, respond with EXACTLY: 'No syntax errors detected.'",
-        "Be thorough - check every line carefully!",
+        "Be thorough - check every line carefully and ALWAYS specify the line number!",
         "",
     ])
     
@@ -744,9 +779,11 @@ You are an advanced Code Review Engine. Analyze the code across multiple dimensi
         "- Logical errors (incorrect conditions, wrong operators)",
         "- Missing return statements where expected",
         "- Incorrect scope or variable access issues",
-        "Format: List each error as '• [Error description]'",
+        "**CRITICAL: MUST include line numbers for EVERY error found!**",
+        "Format: List each error as '• Line X: [Error description]' where X is the line number",
+        "Example: '• Line 12: Variable 'result' used before definition'",
         "If NO semantic errors found, respond with EXACTLY: 'No semantic errors detected.'",
-        "Be thorough - analyze the entire logic flow!",
+        "Be thorough - analyze the entire logic flow and ALWAYS specify the line number!",
         "",
     ])
     
@@ -827,7 +864,8 @@ class UserCreate(BaseModel):
     password: str
 
 class OTPVerify(BaseModel):
-    user_id: int
+    user_id: int = None
+    email: str = None
     otp_code: str
 
 class ResendOTP(BaseModel):
@@ -1172,43 +1210,47 @@ def get_rejection_reasons():
 def register(user: UserCreate):
     db = SessionLocal()
     try:
+        print(f"\n[REGISTER] Attempting registration: username={user.username}, email={user.email}")
+        
         # Check if username already exists
         if db.query(User).filter(User.username == user.username).first():
+            print(f"[REGISTER] Username already exists: {user.username}")
             raise HTTPException(status_code=400, detail="Username already registered")
         
         # Check if email already exists
         if db.query(User).filter(User.email == user.email).first():
+            print(f"[REGISTER] Email already exists: {user.email}")
             raise HTTPException(status_code=400, detail="Email already registered")
         
         # Basic email validation
         if "@" not in user.email or "." not in user.email:
+            print(f"[REGISTER] Invalid email format: {user.email}")
             raise HTTPException(status_code=400, detail="Invalid email format")
         
-        # Generate OTP and set expiration (10 minutes)
-        otp = generate_otp()
-        otp_expires_at = datetime.utcnow() + timedelta(minutes=10)
-        
-        # Create user (not verified yet)
+        # Create user (auto-verified - no OTP needed)
         hashed_password = get_password_hash(user.password)
         new_user = User(
             username=user.username, 
             email=user.email,
             hashed_password=hashed_password,
-            otp_code=otp,
-            otp_expires_at=otp_expires_at,
-            is_verified=False
+            is_verified=True  # Auto-verify on registration
         )
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
         
-        # Send OTP email
-        email_sent = send_otp_email(user.email, otp)
+        print(f"[REGISTER] User created and auto-verified: id={new_user.id}, username={user.username}, email={user.email}")
         
-        if email_sent:
-            return {"message": "Registration successful! Please check your email for the verification code.", "user_id": new_user.id}
-        else:
-            return {"message": "Registration successful! Email service unavailable - contact admin for verification.", "user_id": new_user.id}
+        return {
+            "message": "Registration successful! You can now login with your username and password.",
+            "user_id": new_user.id,
+            "username": new_user.username
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[REGISTER] ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Registration error: {str(e)}")
     finally:
         db.close()
 
@@ -1216,7 +1258,14 @@ def register(user: UserCreate):
 def verify_otp(otp_request: OTPVerify):
     db = SessionLocal()
     try:
-        user = db.query(User).filter(User.id == otp_request.user_id).first()
+        # Support lookup by user_id OR email
+        if otp_request.user_id:
+            user = db.query(User).filter(User.id == otp_request.user_id).first()
+        elif otp_request.email:
+            user = db.query(User).filter(User.email == otp_request.email).first()
+        else:
+            raise HTTPException(status_code=400, detail="Must provide either user_id or email")
+        
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
@@ -1275,15 +1324,41 @@ def resend_otp(resend_request: ResendOTP):
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     db = SessionLocal()
     try:
+        print(f"\n[LOGIN] Login attempt: username={form_data.username}")
+        user = db.query(User).filter(User.username == form_data.username).first()
+        if not user:
+            print(f"[LOGIN] User not found: {form_data.username}")
+            raise HTTPException(status_code=401, detail="Incorrect username or password")
+        
+        if not verify_password(form_data.password, user.hashed_password):
+            print(f"[LOGIN] Password incorrect for user: {form_data.username}")
+            raise HTTPException(status_code=401, detail="Incorrect username or password")
+        
+        # Auto-verified on registration - no need to check is_verified
+        print(f"[LOGIN] Login successful for user: {form_data.username}")
+        access_token = create_access_token(data={"sub": user.username})
+        return {"access_token": access_token, "token_type": "bearer"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[LOGIN] ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
+    finally:
+        db.close()
+
+@app.post("/quick-login")
+async def quick_login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """Development/Testing endpoint - allows login without email verification.
+    Use this for testing when email/OTP delivery is unavailable."""
+    db = SessionLocal()
+    try:
         user = db.query(User).filter(User.username == form_data.username).first()
         if not user or not verify_password(form_data.password, user.hashed_password):
             raise HTTPException(status_code=401, detail="Incorrect username or password")
         
-        if not user.is_verified:
-            raise HTTPException(status_code=403, detail="Please verify your email before logging in")
-        
+        # Skip verification check - for testing/fallback only
         access_token = create_access_token(data={"sub": user.username})
-        return {"access_token": access_token, "token_type": "bearer"}
+        return {"access_token": access_token, "token_type": "bearer", "note": "Logged in without email verification (dev mode)"}
     finally:
         db.close()
 
@@ -1388,6 +1463,55 @@ def admin_list_users(current_admin: dict = Depends(get_current_admin)):
     finally:
         db.close()
 
+@app.get("/admin/debug/network")
+def admin_test_smtp_connectivity(current_admin: dict = Depends(get_current_admin)):
+    """ADMIN-ONLY DEBUG: test SMTP connectivity (DNS + TCP connection)
+    Use to diagnose why OTP emails are not being sent.
+    """
+    import socket
+    results = {
+        "smtp_server": SMTP_SERVER,
+        "smtp_port": SMTP_PORT,
+        "tests": {}
+    }
+    
+    # Test 1: DNS resolution
+    try:
+        ip_address = socket.gethostbyname(SMTP_SERVER)
+        results["tests"]["dns_resolution"] = {
+            "status": "success",
+            "message": f"Resolved {SMTP_SERVER} to {ip_address}"
+        }
+    except socket.gaierror as e:
+        results["tests"]["dns_resolution"] = {
+            "status": "failed",
+            "error": f"DNS resolution failed: {str(e)}"
+        }
+        return results  # No point testing connection if DNS fails
+    
+    # Test 2: TCP connection
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect((SMTP_SERVER, SMTP_PORT))
+        sock.close()
+        results["tests"]["tcp_connection"] = {
+            "status": "success",
+            "message": f"Successfully connected to {SMTP_SERVER}:{SMTP_PORT}"
+        }
+    except socket.timeout:
+        results["tests"]["tcp_connection"] = {
+            "status": "failed",
+            "error": f"Connection timed out after 5 seconds"
+        }
+    except socket.error as e:
+        results["tests"]["tcp_connection"] = {
+            "status": "failed",
+            "error": f"Connection failed: {str(e)} (errno {e.errno})"
+        }
+    
+    return results
+
 @app.post("/generate-review")
 def generate_review(data: CodeInput, current_user: User = Depends(get_current_user)):
     db = SessionLocal()
@@ -1396,21 +1520,21 @@ def generate_review(data: CodeInput, current_user: User = Depends(get_current_us
         analyzer = CodeAnalyzer()
         
         if not GOOGLE_API_KEY:
-            review_text = """🔍 **General Review:**
-✅ Code looks good! Add some comments to make it easier to read. 😊
+            review_text = """≡ƒöì **General Review:**
+Γ£à Code looks good! Add some comments to make it easier to read. ≡ƒÿè
 
-🛡️ **Security Check:**
-Safe ✅ No security problems found.
+≡ƒ¢í∩╕Å **Security Check:**
+Safe Γ£à No security problems found.
 
-🚨 **Issues Found:**
-🟢 LOW: Missing comments for better readability"""
+≡ƒÜ¿ **Issues Found:**
+≡ƒƒó LOW: Missing comments for better readability"""
             optimized_code = data.code
-            explanation_text = "This code does something cool! 🚀"
+            explanation_text = "This code does something cool! ≡ƒÜÇ"
             security_issues = ""
         else:
             # Get user preferences for customized review
             preferences = get_user_preferences(db, current_user.id)
-            print(f"🔍 User preferences loaded for {current_user.username}:")
+            print(f"≡ƒöì User preferences loaded for {current_user.username}:")
             print(f"   - Code Optimization: {preferences.code_optimization}")
             print(f"   - Security Analysis: {preferences.security_analysis}")
             print(f"   - Detailed Explanations: {preferences.detailed_explanations}")
@@ -1420,9 +1544,9 @@ Safe ✅ No security problems found.
             # Fetch latest improvement suggestion to incorporate into prompt
             latest_feedback = get_latest_improvement_suggestion(db, current_user.id)
             if latest_feedback:
-                print(f"📝 Incorporating user feedback into review prompt: '{latest_feedback[:80]}...'")
+                print(f"≡ƒô¥ Incorporating user feedback into review prompt: '{latest_feedback[:80]}...'")
             else:
-                print(f"ℹ️ No previous feedback to incorporate")
+                print(f"Γä╣∩╕Å No previous feedback to incorporate")
             
             # Perform AST analysis (always needed for syntax/semantic error detection)
             detected_language = detect_programming_language(data.code)
@@ -1461,9 +1585,9 @@ Safe ✅ No security problems found.
 Provide your analysis following the exact section markers (###REVIEW###, ###OPTIMIZED_CODE###, ###EXPLANATION###, etc.)."""
 
             if preferences.code_optimization:
-                print("✅ OPTIMIZED_CODE section will be requested in prompt (preference enabled)")
+                print("Γ£à OPTIMIZED_CODE section will be requested in prompt (preference enabled)")
             else:
-                print("⚠️ OPTIMIZED_CODE section will NOT be requested (preference disabled)")
+                print("ΓÜá∩╕Å OPTIMIZED_CODE section will NOT be requested (preference disabled)")
 
             combined_resp = extract_text_from_gemini_response(model.generate_content(combined_prompt))
 
@@ -1488,7 +1612,7 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
             semantic_errors = []
             
             # Debug logging
-            print(f"🔍 AST Analysis Debug:")
+            print(f"≡ƒöì AST Analysis Debug:")
             print(f"  - Language: {detected_language}")
             print(f"  - AST Analysis exists: {ast_analysis is not None}")
             if ast_analysis:
@@ -1501,7 +1625,7 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
                 # Get syntax errors from structure (for Python)
                 if isinstance(ast_analysis.structure, dict) and 'syntax_error' in ast_analysis.structure:
                     syntax_errors.append(ast_analysis.structure['syntax_error'])
-                    print(f"✅ Found syntax error in structure: {ast_analysis.structure['syntax_error']}")
+                    print(f"Γ£à Found syntax error in structure: {ast_analysis.structure['syntax_error']}")
                 
                 # Process issues list
                 if ast_analysis.issues:
@@ -1510,43 +1634,43 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
                             # It's a syntax error
                             if issue not in syntax_errors:  # Avoid duplicates
                                 syntax_errors.append(issue)
-                                print(f"✅ Found syntax error in issues: {issue}")
+                                print(f"Γ£à Found syntax error in issues: {issue}")
                         else:
                             # It's a semantic error
                             semantic_errors.append(issue)
-                            print(f"✅ Found semantic error: {issue}")
+                            print(f"Γ£à Found semantic error: {issue}")
                 
                 # Also check security concerns and performance issues for semantic errors
                 if ast_analysis.security_concerns:
                     semantic_errors.extend(ast_analysis.security_concerns)
-                    print(f"✅ Added {len(ast_analysis.security_concerns)} security concerns to semantic errors")
+                    print(f"Γ£à Added {len(ast_analysis.security_concerns)} security concerns to semantic errors")
                 
                 if ast_analysis.performance_issues:
                     semantic_errors.extend(ast_analysis.performance_issues)
-                    print(f"✅ Added {len(ast_analysis.performance_issues)} performance issues to semantic errors")
+                    print(f"Γ£à Added {len(ast_analysis.performance_issues)} performance issues to semantic errors")
 
             # Format error sections with better formatting
             if syntax_errors:
-                syntax_errors_section = '\n'.join([f"• {error}" for error in syntax_errors])
+                syntax_errors_section = '\n'.join([f"ΓÇó {error}" for error in syntax_errors])
             else:
                 syntax_errors_section = 'No syntax errors detected.'
             
             if semantic_errors:
-                semantic_errors_section = '\n'.join([f"• {error}" for error in semantic_errors])
+                semantic_errors_section = '\n'.join([f"ΓÇó {error}" for error in semantic_errors])
             else:
                 semantic_errors_section = 'No semantic errors detected.'
             
-            print(f"📋 Final Error Sections:")
+            print(f"≡ƒôï Final Error Sections:")
             print(f"  - Syntax ({len(syntax_errors)} errors):")
             if syntax_errors:
                 for err in syntax_errors:
-                    print(f"    • {err}")
+                    print(f"    ΓÇó {err}")
             else:
                 print(f"    {syntax_errors_section}")
             print(f"  - Semantic ({len(semantic_errors)} errors):")
             if semantic_errors:
                 for err in semantic_errors:
-                    print(f"    • {err}")
+                    print(f"    ΓÇó {err}")
             else:
                 print(f"    {semantic_errors_section}")
             
@@ -1590,7 +1714,7 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
                 # Fallback to AST analysis if Gemini didn't provide
                 semantic_errors_section = semantic_errors_section if semantic_errors else 'No semantic errors detected.'
             
-            print(f"🔍 Final Error Sections (from Gemini):")
+            print(f"≡ƒöì Final Error Sections (from Gemini):")
             print(f"  - Syntax Errors: {syntax_errors_section[:100]}...")
             print(f"  - Semantic Errors: {semantic_errors_section[:100]}...")
             
@@ -1622,8 +1746,8 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
             review_sections.append(f"###SYNTAX_ERRORS###\n{syntax_errors_section}")
             review_sections.append(f"###SEMANTIC_ERRORS###\n{semantic_errors_section}")
             
-            print(f"🔍 Syntax errors found: {len(syntax_errors)}")
-            print(f"🔍 Semantic errors found: {len(semantic_errors)}")
+            print(f"≡ƒöì Syntax errors found: {len(syntax_errors)}")
+            print(f"≡ƒöì Semantic errors found: {len(semantic_errors)}")
             
             # Join all sections
             review_text = "\n\n".join(review_sections)
@@ -1743,29 +1867,84 @@ def submit_feedback(data: FeedbackInput, current_user: User = Depends(get_curren
                 db.add(section_feedback_record)
             
             # Update section feedback columns
+            print(f"DEBUG: Updating section feedback columns...")
+            print(f"DEBUG: Section feedback data received: {data.section_feedback}")
             for frontend_name, db_column in section_mapping.items():
                 if frontend_name in data.section_feedback:
-                    setattr(section_feedback_record, db_column, data.section_feedback[frontend_name])
+                    value = data.section_feedback[frontend_name]
+                    print(f"  ✓ Setting {db_column} = '{value}'")
+                    setattr(section_feedback_record, db_column, value)
+                else:
+                    current_value = getattr(section_feedback_record, db_column, None)
+                    if current_value:
+                        print(f"  → Keeping {db_column} = '{current_value}' (not in current update)")
             
             section_feedback_record.overall_feedback = data.feedback
+            print(f"DEBUG: Set overall_feedback = '{data.feedback}'")
+            print(f"DEBUG: Final section_feedback_record state before commit:")
+            print(f"  - key_findings_section: {section_feedback_record.key_findings_section}")
+            print(f"  - architecture_section: {section_feedback_record.architecture_section}")
+            print(f"  - recommendations_section: {section_feedback_record.recommendations_section}")
+            print(f"  - optimized_code_section: {section_feedback_record.optimized_code_section}")
+            print(f"  - syntax_errors_section: {section_feedback_record.syntax_errors_section}")
+            print(f"  - semantic_errors_section: {section_feedback_record.semantic_errors_section}")
         
-        # Update status if rejection reasons provided
-        if data.rejection_reasons or data.custom_rejection_reason:
+        # Smart status calculation based on section-level feedback
+        # Rule: If user provides rejection reasons from modal → REJECTED
+        # Otherwise: Calculate acceptance rate from sections
+        #   - If >50% sections accepted → ACCEPTED (status='reviewed')
+        #   - If ≤50% sections accepted → REJECTED (status='rejected')
+        
+        has_rejection_reasons = data.rejection_reasons or data.custom_rejection_reason
+        
+        if has_rejection_reasons:
+            # User explicitly rejected via modal
             review.status = "rejected"
-            print(f"DEBUG: Set status to rejected")
+            print(f"DEBUG: Set status to rejected (explicit rejection via modal)")
+        elif data.section_feedback:
+            # Calculate acceptance rate from section feedback
+            reviewed_sections = {k: v for k, v in data.section_feedback.items() if v in ['accepted', 'rejected']}
+            
+            if len(reviewed_sections) > 0:
+                accepted_count = sum(1 for v in reviewed_sections.values() if v == 'accepted')
+                rejected_count = sum(1 for v in reviewed_sections.values() if v == 'rejected')
+                total_reviewed = len(reviewed_sections)
+                acceptance_rate = (accepted_count / total_reviewed) * 100
+                
+                print(f"DEBUG: Section-level analysis:")
+                print(f"  - Total sections reviewed: {total_reviewed}")
+                print(f"  - Accepted: {accepted_count}")
+                print(f"  - Rejected: {rejected_count}")
+                print(f"  - Acceptance rate: {acceptance_rate:.1f}%")
+                
+                # More than 50% accepted → Overall ACCEPTED
+                if acceptance_rate > 50:
+                    review.status = "reviewed"
+                    print(f"DEBUG: Set status to REVIEWED (acceptance rate {acceptance_rate:.1f}% > 50%)")
+                else:
+                    review.status = "rejected"
+                    print(f"DEBUG: Set status to REJECTED (acceptance rate {acceptance_rate:.1f}% ≤ 50%)")
+            else:
+                # No sections have been reviewed yet (all null)
+                review.status = "reviewed"
+                print(f"DEBUG: Set status to reviewed (no section-level feedback yet)")
         else:
+            # No section feedback provided, default to reviewed
             review.status = "reviewed"
-            print(f"DEBUG: Set status to reviewed")
+            print(f"DEBUG: Set status to reviewed (default)")
             
         db.commit()
+        db.refresh(section_feedback_record) if data.section_feedback else None
         print(f"DEBUG: Successfully committed to database")
+        print(f"DEBUG: Section feedback record ID: {section_feedback_record.id if data.section_feedback else 'N/A'}")
         
         return {
             "message": "Feedback submitted successfully",
             "status": review.status,
             "rejection_reasons": data.rejection_reasons,
             "custom_reason": data.custom_rejection_reason,
-            "section_feedback": data.section_feedback
+            "section_feedback": data.section_feedback,
+            "section_feedback_id": section_feedback_record.id if data.section_feedback else None
         }
     finally:
         db.close()
@@ -1978,7 +2157,7 @@ Safe ✅ No security problems found.
 {code_for_prompt}
 ```
 
-Provide your analysis following the exact section markers (###REVIEW###, ###OPTIMIZED_CODE###, ###EXPLANATION###, etc.)."""
+Provide your analysis following the exact section markers (###CODE_QUALITY###, ###KEY_FINDINGS###, ###SECURITY###, ###PERFORMANCE###, ###ARCHITECTURE###, ###BEST_PRACTICES###, ###RECOMMENDATIONS###, ###SYNTAX_ERRORS###, ###SEMANTIC_ERRORS###, ###OPTIMIZED_CODE###, ###EXPLANATION###)."""
 
                     try:
                         combined_resp = extract_text_from_gemini_response(model.generate_content(combined_prompt))
@@ -1990,22 +2169,65 @@ Provide your analysis following the exact section markers (###REVIEW###, ###OPTI
                             m = re.search(pattern, text, re.S)
                             return m.group(1).strip() if m else ''
 
-                        review_text = parse_section(combined_resp, '###REVIEW###')
+                        # Parse ALL sections from the response
+                        code_quality = parse_section(combined_resp, '###CODE_QUALITY###')
+                        key_findings = parse_section(combined_resp, '###KEY_FINDINGS###')
+                        security_issues = parse_section(combined_resp, '###SECURITY###')
+                        performance_analysis = parse_section(combined_resp, '###PERFORMANCE###')
+                        architecture_analysis = parse_section(combined_resp, '###ARCHITECTURE###')
+                        best_practices = parse_section(combined_resp, '###BEST_PRACTICES###')
+                        recommendations = parse_section(combined_resp, '###RECOMMENDATIONS###')
+                        syntax_errors_section = parse_section(combined_resp, '###SYNTAX_ERRORS###')
+                        semantic_errors_section = parse_section(combined_resp, '###SEMANTIC_ERRORS###')
                         optimized_code = parse_section(combined_resp, '###OPTIMIZED_CODE###')
                         explanation_text = parse_section(combined_resp, '###EXPLANATION###')
-                        security_issues = parse_section(combined_resp, '###SECURITY###')
+                        
+                        # Combine all sections into review_text with section markers
+                        review_sections = []
+                        
+                        if code_quality:
+                            review_sections.append(f"###CODE_QUALITY###\n{code_quality}")
+                        
+                        if key_findings:
+                            review_sections.append(f"###KEY_FINDINGS###\n{key_findings}")
+                        
+                        if security_issues:
+                            review_sections.append(f"###SECURITY###\n{security_issues}")
+                        
+                        if performance_analysis:
+                            review_sections.append(f"###PERFORMANCE###\n{performance_analysis}")
+                        
+                        if architecture_analysis:
+                            review_sections.append(f"###ARCHITECTURE###\n{architecture_analysis}")
+                        
+                        if best_practices:
+                            review_sections.append(f"###BEST_PRACTICES###\n{best_practices}")
+                        
+                        if recommendations:
+                            review_sections.append(f"###RECOMMENDATIONS###\n{recommendations}")
+                        
+                        # Add syntax and semantic error sections (always)
+                        review_sections.append(f"###SYNTAX_ERRORS###\n{syntax_errors_section}")
+                        review_sections.append(f"###SEMANTIC_ERRORS###\n{semantic_errors_section}")
+                        
+                        # Join all sections
+                        review_text = "\n\n".join(review_sections)
                         
                         # Fallback to AST findings if Gemini response is empty
-                        if not review_text and ast_analysis.issues:
+                        if not review_text and ast_analysis and ast_analysis.issues:
                             review_text = "AST Analysis findings:\n" + '\n'.join([f"- {issue}" for issue in ast_analysis.issues])
                         
                     except Exception as e:
                         print(f"Error processing {file_path}: {e}")
                         # Use AST analysis as fallback
-                        review_text = f"AST Analysis for {file_path}:\n" + '\n'.join([f"- {issue}" for issue in ast_analysis.issues]) if ast_analysis.issues else f"Basic analysis completed for {file_path}"
+                        if ast_analysis and ast_analysis.issues:
+                            review_text = f"AST Analysis for {file_path}:\n" + '\n'.join([f"- {issue}" for issue in ast_analysis.issues])
+                            security_issues = '\n'.join(ast_analysis.security_concerns) if ast_analysis.security_concerns else "No security analysis available"
+                        else:
+                            review_text = f"Basic analysis completed for {file_path}"
+                            security_issues = "Analysis failed"
                         optimized_code = file_content
-                        explanation_text = f"Failed to analyze {file_path} with AI, AST analysis completed"
-                        security_issues = '\n'.join(ast_analysis.security_concerns) if ast_analysis.security_concerns else "Analysis failed"
+                        explanation_text = f"Failed to analyze {file_path} with AI" + (", AST analysis completed" if ast_analysis else "")
 
                 # Detect programming language and extract rating
                 detected_language = detect_programming_language(file_content)
@@ -2102,7 +2324,11 @@ def get_overall_stats(current_admin = Depends(get_current_admin)):
     db = SessionLocal()
     try:
         total_reviews = db.query(Review).count()
-        accepted_reviews = db.query(Review).filter(Review.feedback == "positive").count()
+        # Count reviews based on status
+        # Accepted: status is "reviewed" (user clicked accept/provided feedback without rejecting)
+        # Rejected: status is "rejected" (user clicked reject and provided reasons)
+        # Pending: status is "completed" (no user feedback yet)
+        accepted_reviews = db.query(Review).filter(Review.status == "reviewed").count()
         rejected_reviews = db.query(Review).filter(Review.status == "rejected").count()
         total_users = db.query(User).count()
         
@@ -2146,7 +2372,10 @@ def get_per_user_stats(current_admin = Depends(get_current_admin)):
         for user in users:
             user_reviews = db.query(Review).filter(Review.user_id == user.id).all()
             total = len(user_reviews)
-            accepted = len([r for r in user_reviews if r.feedback == "positive"])
+            # Count reviews based on status field
+            # Accepted: status = "reviewed" (user accepted the review)
+            # Rejected: status = "rejected" (user rejected the review)
+            accepted = len([r for r in user_reviews if r.status == "reviewed"])
             rejected = len([r for r in user_reviews if r.status == "rejected"])
             
             users_stats.append({
@@ -2304,6 +2533,82 @@ def get_section_feedback_analytics(current_admin = Depends(get_current_admin)):
                 "recent_feedback_count": recent_feedback,
                 "generated_at": datetime.utcnow().isoformat()
             }
+        }
+    finally:
+        db.close()
+
+@app.get("/admin/diagnostics/section-feedback")
+def debug_section_feedback(current_admin = Depends(get_current_admin)):
+    """Diagnostics endpoint: verify section_feedback table, columns, and basic counts.
+    Helps debug why section-level analytics may not be showing up.
+    """
+    db = SessionLocal()
+    try:
+        from sqlalchemy import inspect, func
+
+        insp = inspect(engine)
+        tables = insp.get_table_names()
+        table_exists = "section_feedback" in tables
+
+        columns = []
+        if table_exists:
+            for col in insp.get_columns("section_feedback"):
+                columns.append({
+                    "name": col.get("name"),
+                    "type": str(col.get("type"))
+                })
+
+        # Required columns for current analytics/cards
+        required_columns = [
+            "key_findings_section",
+            "architecture_section",
+            "recommendations_section",
+            "optimized_code_section",
+            "syntax_errors_section",
+            "semantic_errors_section",
+        ]
+
+        required_report = {c: any(col["name"] == c for col in columns) for c in required_columns} if table_exists else {c: False for c in required_columns}
+
+        # Row counts and a small sample
+        total_rows = 0
+        recent = []
+        if table_exists:
+            total_rows = db.query(func.count(SectionFeedback.id)).scalar() or 0
+
+            sample = db.query(
+                SectionFeedback.id,
+                SectionFeedback.review_id,
+                SectionFeedback.user_id,
+                SectionFeedback.key_findings_section,
+                SectionFeedback.architecture_section,
+                SectionFeedback.recommendations_section,
+                SectionFeedback.optimized_code_section,
+                SectionFeedback.syntax_errors_section,
+                SectionFeedback.semantic_errors_section,
+                SectionFeedback.created_at,
+            ).order_by(SectionFeedback.created_at.desc()).limit(5).all()
+
+            for s in sample:
+                recent.append({
+                    "id": s[0],
+                    "review_id": s[1],
+                    "user_id": s[2],
+                    "key_findings": s[3],
+                    "architecture": s[4],
+                    "recommendations": s[5],
+                    "optimized_code": s[6],
+                    "syntax_errors": s[7],
+                    "semantic_errors": s[8],
+                    "created_at": s[9].isoformat() if s[9] else None,
+                })
+
+        return {
+            "table_exists": table_exists,
+            "columns": columns,
+            "required_columns_present": required_report,
+            "total_rows": total_rows,
+            "recent": recent,
         }
     finally:
         db.close()

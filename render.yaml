@@ -2,8 +2,10 @@ services:
   - type: web
     name: code-review-bot-backend
     env: python
-    branch: main
-    buildCommand: pip install -r backend/requirements.txt
+    branch: odd2
+    buildCommand: |
+      pip install -r backend/requirements.txt
+      cd frontend && npm install && npm run build && cd ..
     startCommand: python backend/migrate_add_otp_fields.py && gunicorn -k uvicorn.workers.UvicornWorker backend.main:app --bind 0.0.0.0:$PORT
     envVars:
       - key: POSTGRES_URI

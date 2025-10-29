@@ -116,22 +116,27 @@ const ReviewCard = ({ review, onAccept, onReject, codeContainerStyles, showActio
   console.log('onReviewAnother exists:', !!onReviewAnother);
 
   const handleSectionAction = async (section, action) => {
-    // Update local state first for immediate visual feedback
-    setSectionStates(prev => ({
-      ...prev,
+    console.log(`🔘 Section action: ${section} = ${action}`);
+    
+    // Create updated states object FIRST (before setState)
+    const updatedStates = {
+      ...sectionStates,
       [section]: action
-    }));
+    };
+    
+    console.log('📝 Updated section states:', updatedStates);
+    
+    // Update local state for immediate visual feedback
+    setSectionStates(updatedStates);
 
     // Immediately save to backend if onAccept callback is provided
     if (onAccept && review.id) {
-      const updatedStates = {
-        ...sectionStates,
-        [section]: action
-      };
-      
       // Call the parent's onAccept with updated section states
       // This will trigger the API call to save feedback
+      console.log('📤 Calling onAccept with review ID:', review.id);
       onAccept(review.id, updatedStates);
+    } else {
+      console.warn('⚠️ onAccept not available or review.id missing');
     }
   };
 

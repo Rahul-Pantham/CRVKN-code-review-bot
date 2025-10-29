@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Upload, GitBranch } from 'lucide-react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, useNavigate } from 'react-router-dom';
 import Login from './components/login';
 import Register from './components/register';
 import EmailVerification from './components/EmailVerification';
@@ -8,6 +8,7 @@ import RejectionReasonsModal from './components/RejectionReasonsModal';
 import ReviewCard from './components/ReviewCard';
 import AdminLogin from './components/AdminLogin';
 import AdminDashboard from './components/AdminDashboard';
+import RoleSelection from './components/RoleSelection';
 
 // Dynamic API_BASE: Use relative URL in production (same server), localhost in development
 const API_BASE = process.env.NODE_ENV === 'production' 
@@ -15,6 +16,8 @@ const API_BASE = process.env.NODE_ENV === 'production'
   : 'http://localhost:8000';
 
 const CodeReviewApp = () => {
+  const navigate = useNavigate();
+  const [selectedRole, setSelectedRole] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
   const [token, setToken] = useState(null);
@@ -59,19 +62,42 @@ const CodeReviewApp = () => {
 
   useEffect(() => {
     const savedToken = localStorage.getItem('token');
+    const savedRole = localStorage.getItem('selectedRole');
+    
     if (savedToken) {
       setToken(savedToken);
       setIsAuthenticated(true);
       fetchPastReviews(savedToken);
       fetchUserPreferences(savedToken);
+      
+      // Only auto-set role if it was previously saved
+      if (savedRole) {
+        setSelectedRole(savedRole);
+      }
     }
   }, []);
+
+  const handleRoleSelection = (role) => {
+    setSelectedRole(role);
+    localStorage.setItem('selectedRole', role); // Save role selection
+    
+    if (role === 'admin') {
+      navigate('/admin/login');
+    } else if (role === 'user') {
+      // For user role, show login page if not authenticated
+      if (!isAuthenticated) {
+        setShowLogin(true);
+      }
+    }
+  };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
     setUsername('');
     setToken(null);
+    setSelectedRole(null); // Reset role on logout
     localStorage.removeItem('token');
+    localStorage.removeItem('selectedRole'); // Clear saved role
   };
 
   const fetchPastReviews = async (overrideToken) => {
@@ -197,6 +223,14 @@ const CodeReviewApp = () => {
 
   const handleFeedbackSubmitForReview = async (reviewId, feedback, rejectionReason = null, sectionStates = null) => {
     if (!reviewId || !token) return;
+    
+    console.log('🔍 handleFeedbackSubmitForReview called with:', {
+      reviewId,
+      feedback,
+      rejectionReason,
+      sectionStates
+    });
+    
     try {
       // Map frontend camelCase to backend snake_case (new sections)
       const sectionFeedback = sectionStates ? { 
@@ -214,6 +248,8 @@ const CodeReviewApp = () => {
         semanticErrors: sectionStates.semanticErrors    // NEW: semantic errors
       } : {};
       
+      console.log('📤 Sending section feedback to backend:', sectionFeedback);
+      
       const response = await fetch(API_BASE + '/submit-feedback', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, 
@@ -230,6 +266,9 @@ const CodeReviewApp = () => {
         const errorData = await response.json();
         throw new Error(errorData.detail || `Request failed with status code ${response.status}`);
       }
+      
+      const responseData = await response.json();
+      console.log('✅ Feedback submission response:', responseData);
       // Only finalize a review when all available sections have been reviewed
       const review = reviewList.find(r => r.id === reviewId) || (reviewData && reviewData.id === reviewId ? reviewData : null);
       if (review && sectionStates) {
@@ -353,41 +392,57 @@ const CodeReviewApp = () => {
     }
   };
 
-  // Show auth screens first when user isn't authenticated
-  if (!isAuthenticated) {
+  // Show role selection first if no role is selected
+  if (!selectedRole) {
+    return <RoleSelection onSelectRole={handleRoleSelection} />;
+  }
+
+  // After selecting User role, show login/register if not authenticated
+  if (selectedRole === 'user' && !isAuthenticated) {
     return (
       <>
         {showRegister ? (
           <Register
-            // Toggle back to Login view when clicking the Login link on Register
-            setShowLogin={(val) => {
-              // when val is true, we want to show Login instead of Register
-              if (val) setShowRegister(false);
-            }}
-            setShowRegister={setShowRegister}
-          />
-        ) : (
-          <Login
-            // Provide auth setters so successful login unlocks the main app
             setIsAuthenticated={setIsAuthenticated}
             setUsername={setUsername}
             setToken={setToken}
-            // Allow switching to Register from Login
             setShowRegister={setShowRegister}
-            // Provide a no-op close handler so Login behaves like a page (no navigation required)
-            setShowLogin={() => {}}
+            setShowLogin={setShowLogin}
+          />
+        ) : (
+          <Login
+            setIsAuthenticated={setIsAuthenticated}
+            setUsername={setUsername}
+            setToken={setToken}
+            setShowRegister={setShowRegister}
+            setShowLogin={setShowLogin}
           />
         )}
       </>
     );
   }
 
+  // Main Code Review Page (only shown when user role selected AND authenticated)
   return (
     <div className="min-h-screen bg-[#343541] relative">
       <div className="fixed top-4 right-4 z-50 flex gap-3">
-    <button onClick={() => window.location.href = '/admin/login'} className="bg-[#8B5CF6] text-white px-4 py-2 rounded hover:bg-[#7C3AED] transition-colors">Admin</button>
-  {isAuthenticated ? <button onClick={handleLogout} className="btn btn-logout">Logout</button> : <button onClick={() => setShowLogin(true)} className="btn btn-auth">Login</button>}
+        <button onClick={handleLogout} className="btn btn-logout">Logout</button>
       </div>
+
+      {/* User Profile Display - Bottom Left Corner */}
+      {username && (
+        <div className="fixed bottom-6 left-6 z-50 flex items-center gap-3 bg-gradient-to-r from-purple-600/20 to-blue-600/20 backdrop-blur-md border border-white/20 rounded-full px-4 py-3 shadow-lg">
+          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center shadow-md">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xs text-gray-400 font-medium">Logged in as</span>
+            <span className="text-sm font-semibold text-white">{username}</span>
+          </div>
+        </div>
+      )}
 
   {!showHistory && <button onClick={() => setShowHistory(true)} className="fixed left-6 top-4 z-50 btn btn-primary">History</button>}
       {showHistory && (

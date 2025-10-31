@@ -1228,36 +1228,26 @@ def register(user: UserCreate):
             print(f"[REGISTER] Invalid email format: {user.email}")
             raise HTTPException(status_code=400, detail="Invalid email format")
         
-        # Generate OTP
-        otp = generate_otp()
-        otp_expires_at = datetime.utcnow() + timedelta(minutes=10)
-        
-        # Create user (NOT verified - requires OTP)
+        # Create user (AUTO-VERIFIED - no OTP required)
         hashed_password = get_password_hash(user.password)
         new_user = User(
             username=user.username, 
             email=user.email,
             hashed_password=hashed_password,
-            is_verified=False,  # Requires OTP verification
-            otp_code=otp,
-            otp_expires_at=otp_expires_at
+            is_verified=True  # Auto-verified on registration (no email verification needed)
         )
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
         
-        # Send OTP email
-        send_otp_email(user.email, otp)
-        
-        print(f"[REGISTER] User created (unverified): id={new_user.id}, username={user.username}, email={user.email}")
-        print(f"[REGISTER] OTP sent to {user.email}, expires at {otp_expires_at}")
+        print(f"[REGISTER] User created (auto-verified): id={new_user.id}, username={user.username}, email={user.email}")
         
         return {
-            "message": "Registration successful! Please check your email for the verification code.",
+            "message": "Registration successful! You can now login.",
             "user_id": new_user.id,
             "username": new_user.username,
             "email": user.email,
-            "requires_verification": True
+            "requires_verification": False
         }
     except HTTPException:
         raise
@@ -1347,14 +1337,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             print(f"[LOGIN] Password incorrect for user: {form_data.username}")
             raise HTTPException(status_code=401, detail="Incorrect username or password")
         
-        # Check if email is verified
-        if not user.is_verified:
-            print(f"[LOGIN] User not verified: {form_data.username}")
-            raise HTTPException(
-                status_code=403, 
-                detail="Email not verified. Please check your email for the verification code."
-            )
-        
+        # Email verification disabled - auto-verified on registration
         print(f"[LOGIN] Login successful for user: {form_data.username}")
         access_token = create_access_token(data={"sub": user.username})
         return {

@@ -37,7 +37,12 @@ const Login = ({ setIsAuthenticated, setUsername, setShowLogin, setShowRegister,
           navigate('/');
         }
       } else {
-        setError('Incorrect username or password');
+        const data = await response.json();
+        if (response.status === 403) {
+          setError(data.detail || 'Email not verified. Please check your email for the verification code.');
+        } else {
+          setError(data.detail || 'Incorrect username or password');
+        }
       }
     } catch (error) {
       console.error('Login error:', error);

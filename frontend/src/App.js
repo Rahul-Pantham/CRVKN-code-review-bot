@@ -21,6 +21,7 @@ const CodeReviewApp = () => {
   const [selectedRole, setSelectedRole] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
+  const [userEmail, setUserEmail] = useState('');
   const [token, setToken] = useState(null);
   const [showLogin, setShowLogin] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
@@ -68,6 +69,7 @@ const CodeReviewApp = () => {
     if (savedToken) {
       setToken(savedToken);
       setIsAuthenticated(true);
+      fetchUserProfile(savedToken);
       fetchPastReviews(savedToken);
       fetchUserPreferences(savedToken);
       
@@ -95,10 +97,24 @@ const CodeReviewApp = () => {
   const handleLogout = () => {
     setIsAuthenticated(false);
     setUsername('');
+    setUserEmail('');
     setToken(null);
     setSelectedRole(null); // Reset role on logout
     localStorage.removeItem('token');
     localStorage.removeItem('selectedRole'); // Clear saved role
+  };
+
+  const fetchUserProfile = async (overrideToken) => {
+    const authToken = overrideToken || token;
+    if (!authToken) return;
+    try {
+      const resp = await fetch(API_BASE + '/user/me', { headers: { Authorization: `Bearer ${authToken}` } });
+      if (resp.ok) {
+        const userData = await resp.json();
+        setUsername(userData.username);
+        setUserEmail(userData.email);
+      }
+    } catch (e) { /* ignore */ }
   };
 
   const fetchPastReviews = async (overrideToken) => {
@@ -414,7 +430,7 @@ const CodeReviewApp = () => {
           <Login
             setIsAuthenticated={setIsAuthenticated}
             setUsername={setUsername}
-            setToken={setToken}
+            setToken={(t) => { setToken(t); fetchUserProfile(t); fetchPastReviews(t); fetchUserPreferences(t); }}
             setShowRegister={setShowRegister}
             setShowLogin={setShowLogin}
           />
@@ -441,6 +457,9 @@ const CodeReviewApp = () => {
           <div className="flex flex-col">
             <span className="text-xs text-gray-400 font-medium">Logged in as</span>
             <span className="text-sm font-semibold text-white">{username}</span>
+            {userEmail && (
+              <span className="text-xs text-gray-400 mt-0.5">{userEmail}</span>
+            )}
           </div>
         </div>
       )}
@@ -820,7 +839,7 @@ const CodeReviewApp = () => {
               setUsername={setUsername}
               setShowLogin={setShowLogin}
               setShowRegister={setShowRegister}
-              setToken={(t) => { setToken(t); fetchPastReviews(t); fetchUserPreferences(t); }}
+              setToken={(t) => { setToken(t); fetchUserProfile(t); fetchPastReviews(t); fetchUserPreferences(t); }}
             />
           </div>
         </div>

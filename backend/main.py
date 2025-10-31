@@ -1228,24 +1228,36 @@ def register(user: UserCreate):
             print(f"[REGISTER] Invalid email format: {user.email}")
             raise HTTPException(status_code=400, detail="Invalid email format")
         
-        # Create user (auto-verified - no OTP needed)
+        # Generate OTP
+        otp = generate_otp()
+        otp_expires_at = datetime.utcnow() + timedelta(minutes=10)
+        
+        # Create user (NOT verified - requires OTP)
         hashed_password = get_password_hash(user.password)
         new_user = User(
             username=user.username, 
             email=user.email,
             hashed_password=hashed_password,
-            is_verified=True  # Auto-verify on registration
+            is_verified=False,  # Requires OTP verification
+            otp_code=otp,
+            otp_expires_at=otp_expires_at
         )
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
         
-        print(f"[REGISTER] User created and auto-verified: id={new_user.id}, username={user.username}, email={user.email}")
+        # Send OTP email
+        send_otp_email(user.email, otp)
+        
+        print(f"[REGISTER] User created (unverified): id={new_user.id}, username={user.username}, email={user.email}")
+        print(f"[REGISTER] OTP sent to {user.email}, expires at {otp_expires_at}")
         
         return {
-            "message": "Registration successful! You can now login with your username and password.",
+            "message": "Registration successful! Please check your email for the verification code.",
             "user_id": new_user.id,
-            "username": new_user.username
+            "username": new_user.username,
+            "email": user.email,
+            "requires_verification": True
         }
     except HTTPException:
         raise
@@ -1335,10 +1347,22 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             print(f"[LOGIN] Password incorrect for user: {form_data.username}")
             raise HTTPException(status_code=401, detail="Incorrect username or password")
         
-        # Auto-verified on registration - no need to check is_verified
+        # Check if email is verified
+        if not user.is_verified:
+            print(f"[LOGIN] User not verified: {form_data.username}")
+            raise HTTPException(
+                status_code=403, 
+                detail="Email not verified. Please check your email for the verification code."
+            )
+        
         print(f"[LOGIN] Login successful for user: {form_data.username}")
         access_token = create_access_token(data={"sub": user.username})
-        return {"access_token": access_token, "token_type": "bearer"}
+        return {
+            "access_token": access_token, 
+            "token_type": "bearer",
+            "username": user.username,
+            "email": user.email
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -1367,6 +1391,17 @@ async def quick_login(form_data: OAuth2PasswordRequestForm = Depends()):
 def logout():
     # Frontend must delete token from localStorage/session
     return {"message": "Logged out successfully"}
+
+@app.get("/user/me")
+def get_user_profile(current_user: User = Depends(get_current_user)):
+    """Get current user profile information"""
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "is_verified": current_user.is_verified,
+        "created_at": current_user.created_at
+    }
 
 # Pattern Learning Endpoints
 class FeedbackRequest(BaseModel):

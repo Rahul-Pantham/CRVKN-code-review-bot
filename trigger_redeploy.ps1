@@ -1,7 +1,7 @@
-#!/usr/bin/env powershell
+﻿#!/usr/bin/env powershell
 # Force redeploy by making a small change to trigger Render
 
-Write-Host "🔄 Triggering Render redeploy..."
+Write-Host " Triggering Render redeploy..."
 
 # Add a timestamp comment to main.py
 $mainFile = "backend\main.py"
@@ -14,7 +14,7 @@ $content = Get-Content $mainFile -Raw
 if ($content -notmatch "# DEPLOY_TIMESTAMP") {
     $newContent = "# DEPLOY_TIMESTAMP: $timestamp`n" + $content
     Set-Content $mainFile $newContent
-    Write-Host "✅ Added timestamp trigger to main.py"
+    Write-Host " Added timestamp trigger to main.py"
 }
 
 # Commit and push
@@ -22,9 +22,9 @@ git add backend/main.py
 git commit -m "chore: redeploy trigger - $timestamp"
 git push origin odd2
 
-Write-Host "✅ Redeploy triggered!"
+Write-Host " Redeploy triggered!"
 Write-Host ""
-Write-Host "📌 Manual Deploy on Render:"
+Write-Host " Manual Deploy on Render:"
 Write-Host "1. Go to https://dashboard.render.com"
 Write-Host "2. Select service"
 Write-Host "3. Click 'Manual Deploy'"

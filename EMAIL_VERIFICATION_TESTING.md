@@ -21,7 +21,7 @@ I've added **fallback email handling** so the app works immediately even without
 
 ### Step 2: Register a Test User
 
-1. Go to https://crvkn-code-review-bot.onrender.com
+1. Go to https://codegem-code-review-bot.onrender.com
 2. Click **Register**
 3. Fill in:
    - Email: `test@example.com` (any email)
@@ -62,7 +62,7 @@ $body = @{
     otp_code = "559472"
 } | ConvertTo-Json
 
-Invoke-RestMethod -Uri "https://crvkn-code-review-bot.onrender.com/verify-otp" `
+Invoke-RestMethod -Uri "https://codegem-code-review-bot.onrender.com/verify-otp" `
     -Method Post `
     -Body $body `
     -ContentType "application/json"
@@ -70,7 +70,7 @@ Invoke-RestMethod -Uri "https://crvkn-code-review-bot.onrender.com/verify-otp" `
 
 **Method 2: Use /quick-login (dev mode)**
 ```powershell
-Invoke-RestMethod -Uri "https://crvkn-code-review-bot.onrender.com/quick-login" `
+Invoke-RestMethod -Uri "https://codegem-code-review-bot.onrender.com/quick-login" `
     -Method Post `
     -ContentType "application/x-www-form-urlencoded" `
     -Body @{ username = "testuser"; password = "Test@123456" }
@@ -112,14 +112,14 @@ $verifyBody = @{
     otp_code = "559472"
 } | ConvertTo-Json
 
-$verify = Invoke-RestMethod -Uri "https://crvkn-code-review-bot.onrender.com/verify-otp" `
+$verify = Invoke-RestMethod -Uri "https://codegem-code-review-bot.onrender.com/verify-otp" `
     -Method Post -Body $verifyBody -ContentType "application/json"
 
 Write-Host $verify.message
 # Output: "Email verified successfully! You can now login."
 
 # 4. LOGIN
-$login = Invoke-RestMethod -Uri "https://crvkn-code-review-bot.onrender.com/token" `
+$login = Invoke-RestMethod -Uri "https://codegem-code-review-bot.onrender.com/token" `
     -Method Post `
     -ContentType "application/x-www-form-urlencoded" `
     -Body @{ username = "testuser"; password = "Test@123456" }

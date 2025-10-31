@@ -9,7 +9,7 @@
 
 ### Step 1: Redeploy on Render
 1. Open https://dashboard.render.com/services
-2. Select your backend service (crvkn-code-review-bot)
+2. Select your backend service (codegem-code-review-bot)
 3. Click **Manual Deploy** button
 4. Wait for the service to show "Live" (green status) — this takes ~2-3 minutes
 5. In Render logs, you should see "Application startup complete" and "Your service is live 🎉"
@@ -59,7 +59,7 @@ The script will:
 
 ### Step 4: Test Registration & Login
 Once SMTP is fixed:
-1. Go to https://crvkn-code-review-bot.onrender.com
+1. Go to https://codegem-code-review-bot.onrender.com
 2. Click Register
 3. Use a real email you can access
 4. You should receive the OTP email in seconds

@@ -49,7 +49,7 @@ const EmailVerification = () => {
     <div className="min-h-screen bg-[#343541] flex items-center justify-center">
       <div className="bg-[#40414f] rounded-2xl shadow-lg p-8 w-full max-w-md text-center">
         <div className="mb-6">
-          <span className="text-white text-xl font-semibold">CRVKN</span>
+          <span className="text-white text-xl font-semibold">codeGem</span>
         </div>
         
         <div className="space-y-6">

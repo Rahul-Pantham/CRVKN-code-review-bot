@@ -18,7 +18,7 @@ DEPLOYMENT STEPS:
 STEP 1: Open Render Dashboard
    → https://dashboard.render.com/services
 
-STEP 2: Click on "crvkn-code-review-bot" service
+STEP 2: Click on "codegem-code-review-bot" service
 
 STEP 3: Scroll to the bottom
 
@@ -33,7 +33,7 @@ STEP 6: Wait 2-3 minutes
    → Watch for: "Your service is live"
 
 STEP 7: Test Registration
-   → Go to: https://crvkn-code-review-bot.onrender.com
+   → Go to: https://codegem-code-review-bot.onrender.com
    → Click "Register"
    → Try these credentials:
       Username: testuser

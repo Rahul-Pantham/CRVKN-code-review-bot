@@ -488,7 +488,7 @@ const CodeReviewApp = () => {
       <div ref={codeTopRef} className="max-w-6xl mx-auto px-6 pt-28 pb-24 space-y-10">
         <div className="text-center mb-8">
           <h1 className="text-5xl font-bold text-white">
-            CRVKN <span className="text-3xl font-normal text-gray-300">Code Review Bot</span>
+            codeGem <span className="text-3xl font-normal text-gray-300">Code Review Bot</span>
           </h1>
         </div>
 
@@ -508,7 +508,7 @@ const CodeReviewApp = () => {
               <div className="blurb flex-1">
                 <div className="blurb-title">Meet your AI code reviewer</div>
                 <p className="blurb-text">
-                  CRVKN inspects logic, style, and security patterns in your snippets or uploads and returns
+                  codeGem inspects logic, style, and security patterns in your snippets or uploads and returns
                   concise, prioritized suggestions with ready-to-apply fixes.
                 </p>
                 <div className="blurb-badges">
@@ -714,16 +714,16 @@ const CodeReviewApp = () => {
           <div className="card w-full max-w-2xl p-8 max-h-[90vh] overflow-y-auto">
             <div className="text-center mb-6">
               <h2 className="text-4xl font-bold text-white">
-                CRVKN <span className="text-2xl font-normal text-gray-300">Code Review Bot</span>
+                codeGem <span className="text-2xl font-normal text-gray-300">Code Review Bot</span>
               </h2>
             </div>
             
             <div className="space-y-6 text-gray-300">
               {/* About the Bot */}
               <div>
-                <h3 className="text-xl font-semibold text-white mb-3">🤖 About CRVKN</h3>
+                <h3 className="text-xl font-semibold text-white mb-3">🤖 About codeGem</h3>
                 <p className="leading-relaxed">
-                  CRVKN is your intelligent code review assistant powered by advanced AI. It analyzes your code for logic errors, 
+                  codeGem is your intelligent code review assistant powered by advanced AI. It analyzes your code for logic errors, 
                   security vulnerabilities, performance issues, and style improvements. Get instant, actionable feedback with 
                   optimized code suggestions.
                 </p>
@@ -763,7 +763,7 @@ const CodeReviewApp = () => {
                     </div>
                     <p className="text-sm text-gray-400">
                       Review code directly from a GitHub repository. Enter the repo URL and branch name, 
-                      and CRVKN will analyze the entire codebase.
+                      and codeGem will analyze the entire codebase.
                     </p>
                   </div>
 
@@ -773,7 +773,7 @@ const CodeReviewApp = () => {
                       <strong className="text-white">Preferences</strong>
                     </div>
                     <p className="text-sm text-gray-400">
-                      Customize your review experience. Tell CRVKN what to focus on: optimization, security, 
+                      Customize your review experience. Tell codeGem what to focus on: optimization, security, 
                       detailed explanations, best practices, or skip certain sections entirely.
                     </p>
                   </div>

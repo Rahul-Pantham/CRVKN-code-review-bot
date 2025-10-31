@@ -164,10 +164,10 @@ def send_otp_email(email: str, otp: str):
         msg = MIMEMultipart()
         msg['From'] = FROM_EMAIL
         msg['To'] = email
-        msg['Subject'] = "CRVKN - Email Verification Code"
+        msg['Subject'] = "codeGem - Email Verification Code"
         
         body = f"""
-        Welcome to CRVKN Code Review Bot!
+        Welcome to codeGem Code Review Bot!
         
         Your email verification code is: {otp}
         
@@ -177,7 +177,7 @@ def send_otp_email(email: str, otp: str):
         If you didn't create an account, please ignore this email.
         
         Best regards,
-        CRVKN Team
+        codeGem Team
         """
         
         msg.attach(MIMEText(body, 'plain'))
@@ -820,7 +820,7 @@ allowed_origins = [
     "http://127.0.0.1:3001",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
-    "https://crvkn-code-review-bot.onrender.com",
+    "https://codegem-code-review-bot.onrender.com",
 ]
 
 # In production on same server, allow all origins since frontend is served from same domain

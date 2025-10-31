@@ -74,10 +74,10 @@ POSTGRES_URI=<leave-unset-to-use-sqlite>
 - ✅ **Status**: All changes committed and pushed
 
 ### Render Configuration
-- ✅ **Service**: `crvkn-code-review-bot`
+- ✅ **Service**: `codegem-code-review-bot`
 - ✅ **Build Command**: `pip install -r backend/requirements.txt`
 - ✅ **Start Command**: `gunicorn -k uvicorn.workers.UvicornWorker backend.main:app --bind 0.0.0.0:$PORT`
-- ✅ **URL**: `https://crvkn-code-review-bot.onrender.com`
+- ✅ **URL**: `https://codegem-code-review-bot.onrender.com`
 
 ---
 
@@ -128,7 +128,7 @@ git log --oneline -1
 Visit: https://dashboard.render.com/services
 
 ### Step 3: Select Service
-Click: `crvkn-code-review-bot`
+Click: `codegem-code-review-bot`
 
 ### Step 4: Manual Deploy
 Scroll down → Click "Manual Deploy" → Select "Deploy latest commit"
@@ -148,10 +148,10 @@ SHOULD HAVE:
 - `SMTP_USERNAME` and `SMTP_PASSWORD` (for OTP emails)
 
 ### Step 7: Test Website
-Visit: https://crvkn-code-review-bot.onrender.com
+Visit: https://codegem-code-review-bot.onrender.com
 
 **Test Flows**:
-1. ✅ Frontend displays (CRVKN login page)
+1. ✅ Frontend displays (codeGem login page)
 2. ✅ Click "Register" → create account
 3. ✅ Enter username, email, password
 4. ✅ Registration succeeds → OTP sent (or shown in logs)

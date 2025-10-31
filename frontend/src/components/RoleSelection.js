@@ -11,7 +11,7 @@ const RoleSelection = ({ onSelectRole }) => {
             <span className="text-4xl font-bold text-white">□</span>
           </div>
           <h1 className="text-5xl font-bold text-white mb-3">
-            CRVKN
+            codeGem
           </h1>
           <p className="text-xl text-gray-400">Code Review Bot</p>
         </div>
@@ -19,7 +19,7 @@ const RoleSelection = ({ onSelectRole }) => {
         {/* Role Selection */}
         <div className="text-center mb-8">
           <h2 className="text-2xl font-semibold text-white mb-2">Choose Your Access Level</h2>
-          <p className="text-gray-400">Select how you want to use CRVKN</p>
+          <p className="text-gray-400">Select how you want to use codeGem</p>
         </div>
 
         {/* Selection Cards */}

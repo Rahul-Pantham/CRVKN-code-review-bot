@@ -1,12 +1,12 @@
 # 🎉 DEPLOYMENT COMPLETE - APP IS LIVE AND FUNCTIONAL
 
-## Current Status: ✅ LIVE at https://crvkn-code-review-bot.onrender.com
+## Current Status: ✅ LIVE at https://codegem-code-review-bot.onrender.com
 
 ### What's Working Now:
 
 | Feature | Status | Evidence |
 |---------|--------|----------|
-| **Website** | ✅ LIVE | Serving at https://crvkn-code-review-bot.onrender.com |
+| **Website** | ✅ LIVE | Serving at https://codegem-code-review-bot.onrender.com |
 | **Frontend** | ✅ WORKING | CSS, JS, static files loading (HTTP 200) |
 | **Backend** | ✅ RUNNING | Gunicorn + Uvicorn workers active |
 | **Database** | ✅ CREATED | SQLite database initialized and verified |
@@ -22,7 +22,7 @@
 
 ### **Step 1: Register a User**
 
-Visit: https://crvkn-code-review-bot.onrender.com
+Visit: https://codegem-code-review-bot.onrender.com
 
 Fill in:
 - Email: `test@example.com` (any email)
@@ -65,7 +65,7 @@ $body = @{
     otp_code = "559472"
 } | ConvertTo-Json
 
-$response = Invoke-RestMethod -Uri "https://crvkn-code-review-bot.onrender.com/verify-otp" `
+$response = Invoke-RestMethod -Uri "https://codegem-code-review-bot.onrender.com/verify-otp" `
     -Method Post `
     -Body $body `
     -ContentType "application/json"
@@ -76,7 +76,7 @@ Write-Host $response.message
 
 **Option B: Quick-Login (Dev Mode - Skip Verification)**
 ```powershell
-$response = Invoke-RestMethod -Uri "https://crvkn-code-review-bot.onrender.com/quick-login" `
+$response = Invoke-RestMethod -Uri "https://codegem-code-review-bot.onrender.com/quick-login" `
     -Method Post `
     -ContentType "application/x-www-form-urlencoded" `
     -Body @{ username = "testuser"; password = "Test@123456" }
@@ -88,7 +88,7 @@ Write-Host $response.access_token
 
 **After verification:**
 ```powershell
-$login = Invoke-RestMethod -Uri "https://crvkn-code-review-bot.onrender.com/token" `
+$login = Invoke-RestMethod -Uri "https://codegem-code-review-bot.onrender.com/token" `
     -Method Post `
     -ContentType "application/x-www-form-urlencoded" `
     -Body @{ username = "testuser"; password = "Test@123456" }
